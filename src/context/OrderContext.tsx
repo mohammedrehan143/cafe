@@ -94,7 +94,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === ORDERS_STORAGE_KEY && e.newValue) {
-        setOrders(filterOrdersLast10Days(JSON.parse(e.newValue)));
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setOrders(filterOrdersLast10Days(parsed));
+          }
+        } catch {
+          // ignore malformed storage payload
+        }
       }
     };
     window.addEventListener('storage', handleStorageChange);

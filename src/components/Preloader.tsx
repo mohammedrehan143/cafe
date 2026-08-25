@@ -23,11 +23,11 @@ export default function Preloader({ onComplete }: PreloaderProps) {
           setTimeout(() => {
             setIsFinished(true);
             if (onComplete) onComplete();
-          }, 400);
+          }, 600);
           return prev;
         }
       });
-    }, 450);
+    }, 720);
 
     return () => clearInterval(wordInterval);
   }, []);

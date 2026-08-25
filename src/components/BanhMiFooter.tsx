@@ -110,7 +110,7 @@ export default function BanhMiFooter() {
           transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
           className="relative w-full flex items-center justify-center"
         >
-          <h2 className="font-display text-7xl sm:text-9xl md:text-[11rem] lg:text-[13rem] xl:text-[15rem] font-black uppercase text-[#FFF8F0] tracking-tighter leading-none text-center drop-shadow-2xl">
+          <h2 className="font-display text-6xl sm:text-8xl md:text-[11rem] lg:text-[13rem] xl:text-[15rem] font-black uppercase text-[#FFF8F0] tracking-tighter leading-none text-center drop-shadow-2xl">
             &ldquo;THANK&rdquo;
           </h2>
         </motion.div>
@@ -121,16 +121,16 @@ export default function BanhMiFooter() {
           whileInView={{ scale: 1, opacity: 1, rotate: -2 }}
           viewport={{ once: true }}
           transition={{ duration: 0.7, delay: 0.25, type: 'spring', bounce: 0.35 }}
-          className="relative px-6 sm:px-10 py-2.5 sm:py-3.5 bg-[#EFE6D8] text-[#3E2723] rounded-lg shadow-2xl border-y-2 border-dashed border-[#8D6E63] -my-4 sm:-my-6 z-30 flex items-center space-x-3 drop-shadow-2xl"
+          className="relative px-3.5 sm:px-8 py-2 sm:py-3.5 bg-[#EFE6D8] text-[#3E2723] rounded-xl shadow-2xl border-y-2 border-dashed border-[#8D6E63] -my-2.5 sm:-my-6 z-30 flex items-center justify-center space-x-2 sm:space-x-3 max-w-[92vw] sm:max-w-max mx-auto drop-shadow-2xl"
           style={{
-            clipPath: 'polygon(2% 0%, 98% 2%, 100% 98%, 0% 96%)',
+            clipPath: 'polygon(1% 0%, 99% 1%, 100% 99%, 0% 98%)',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
           }}
         >
-          <span className="font-serif italic text-sm sm:text-lg md:text-xl font-bold tracking-wide">
-            Handcrafted with love in India &bull; Taste the crunch
+          <span className="font-serif italic text-[11px] sm:text-base md:text-lg font-bold tracking-tight sm:tracking-wide text-center">
+            Taste the Crunch &bull; Handcrafted with Love in India
           </span>
-          <span className="text-xl sm:text-2xl animate-bounce">🥪</span>
+          <span className="text-base sm:text-2xl animate-bounce flex-shrink-0">🥪</span>
         </motion.div>
 
         {/* Bottom Massive Graphic Typography: “YOU” */}
@@ -141,7 +141,7 @@ export default function BanhMiFooter() {
           transition={{ duration: 0.9, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
           className="relative w-full flex items-center justify-center"
         >
-          <h2 className="font-display text-7xl sm:text-9xl md:text-[11rem] lg:text-[13rem] xl:text-[15rem] font-black uppercase text-[#FFF8F0] tracking-tighter leading-none text-center drop-shadow-2xl">
+          <h2 className="font-display text-6xl sm:text-8xl md:text-[11rem] lg:text-[13rem] xl:text-[15rem] font-black uppercase text-[#FFF8F0] tracking-tighter leading-none text-center drop-shadow-2xl">
             YOU
           </h2>
         </motion.div>

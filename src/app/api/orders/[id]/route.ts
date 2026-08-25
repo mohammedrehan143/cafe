@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { INITIAL_ORDERS } from '@/data/cafeData';
-import { Order } from '@/types/cafe';
+import { Order, OrderStatus } from '@/types/cafe';
+import { checkRateLimit, sanitizeString } from '@/lib/security';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const limit = checkRateLimit(req, 60, 60);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Too many lookup requests' },
+      { status: 429 }
+    );
+  }
+
   try {
     const { id } = await params;
-    const lookupId = decodeURIComponent(id).trim().toUpperCase();
+    const lookupId = sanitizeString(decodeURIComponent(id).trim().toUpperCase(), 40);
+
+    if (!lookupId) {
+      return NextResponse.json({ success: false, error: 'Tracking ID is required' }, { status: 400 });
+    }
 
     // 1. Try Supabase lookup
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
@@ -34,7 +47,7 @@ export async function GET(
             unitOrApt: data.customer_unit,
             deliveryInstructions: data.customer_instructions,
           },
-          items: data.items_json,
+          items: Array.isArray(data.items_json) ? data.items_json : [],
           subtotal: Number(data.subtotal),
           deliveryFee: Number(data.delivery_fee),
           tax: Number(data.tax),
@@ -60,12 +73,9 @@ export async function GET(
       return NextResponse.json({ success: true, order: matched });
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Order tracking ID not found or older than 10 days' },
-      { status: 404 }
-    );
+    return NextResponse.json({ success: false, error: 'Order not found' }, { status: 404 });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message || 'Lookup failed' }, { status: 500 });
   }
 }
 
@@ -73,23 +83,30 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const limit = checkRateLimit(req, 40, 60);
+  if (!limit.allowed) {
+    return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 });
+  }
+
   try {
     const { id } = await params;
+    const lookupId = sanitizeString(decodeURIComponent(id).trim(), 40);
     const body = await req.json();
     const { status } = body;
 
-    if (!status) {
-      return NextResponse.json({ success: false, error: 'Missing status' }, { status: 400 });
+    const validStatuses: OrderStatus[] = ['new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json({ success: false, error: 'Invalid order status' }, { status: 400 });
     }
 
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       await supabase
         .from('orders')
-        .update({ status, updated_at: new Date().toISOString() })
-        .or(`id.eq.${id},tracking_code.eq.${id}`);
+        .update({ status })
+        .or(`id.eq.${lookupId},tracking_code.eq.${lookupId}`);
     }
 
-    return NextResponse.json({ success: true, message: `Order status updated to ${status}` });
+    return NextResponse.json({ success: true, status });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
