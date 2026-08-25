@@ -117,19 +117,20 @@ export default function BanhMiFooter() {
 
         {/* Center Paper Tape Ribbon with Pop-in animation */}
         <motion.div
-          initial={{ scale: 0, opacity: 0, rotate: -4 }}
-          whileInView={{ scale: 1, opacity: 1, rotate: 0 }}
+          initial={{ scale: 0, opacity: 0, rotate: -3 }}
+          whileInView={{ scale: 1, opacity: 1, rotate: -2 }}
           viewport={{ once: true }}
           transition={{ duration: 0.7, delay: 0.25, type: 'spring', bounce: 0.35 }}
-          className="relative w-72 sm:w-96 md:w-[32rem] lg:w-[38rem] h-16 sm:h-24 md:h-28 -my-4 sm:-my-8 z-30 flex items-center justify-center drop-shadow-xl"
+          className="relative px-6 sm:px-10 py-2.5 sm:py-3.5 bg-[#EFE6D8] text-[#3E2723] rounded-lg shadow-2xl border-y-2 border-dashed border-[#8D6E63] -my-4 sm:-my-6 z-30 flex items-center space-x-3 drop-shadow-2xl"
+          style={{
+            clipPath: 'polygon(2% 0%, 98% 2%, 100% 98%, 0% 96%)',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+          }}
         >
-          <Image
-            src="https://banhmivietnam.xyz/img/Footer%20paper%20center.png"
-            alt="Let's taste the crunch and enjoy"
-            fill
-            className="object-contain"
-            priority
-          />
+          <span className="font-serif italic text-sm sm:text-lg md:text-xl font-bold tracking-wide">
+            Handcrafted with love in India &bull; Taste the crunch
+          </span>
+          <span className="text-xl sm:text-2xl animate-bounce">🥪</span>
         </motion.div>
 
         {/* Bottom Massive Graphic Typography: “YOU” */}

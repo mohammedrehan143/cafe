@@ -25,18 +25,18 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Zoffers | Gourmet Cloud Kitchen & Artisan Culinary Studio",
-  description: "Artisan crispy baguettes, slow-simmered savory meats, and viral sea salt cream coffees. Handcrafted in our SoHo culinary cloud studio with live order tracking & Razorpay checkout.",
-  keywords: ["zoffers", "cloud kitchen", "gourmet sandwich delivery", "crispy baguette", "specialty coffee delivery", "soho food delivery", "sea salt coffee"],
+  title: "Zoffers | India's Gourmet Cloud Kitchen & Artisan Culinary Studio",
+  description: "Artisan crispy baguettes, charcoal-grilled spiced specialties, and single-origin Chikmagalur sea salt coffees. Handcrafted across Bengaluru, Mumbai & Delhi with live order tracking & Razorpay checkout.",
+  keywords: ["zoffers", "cloud kitchen india", "gourmet sandwich delivery", "crispy baguette", "filter coffee delivery", "bengaluru cloud kitchen", "mumbai food delivery", "sea salt coffee"],
   openGraph: {
-    title: "Zoffers | Gourmet Cloud Kitchen & Artisan Culinary Studio",
-    description: "Gourmet culinary craft and crispy artisan creations, delivered fresh to your door.",
+    title: "Zoffers | India's Gourmet Cloud Kitchen & Artisan Culinary Studio",
+    description: "Gourmet culinary craft and crispy artisan creations, delivered hot to your door across India.",
     images: [
       {
         url: "https://banhmivietnam.xyz/img/Hero%20banh%20mi.png",
         width: 1200,
         height: 630,
-        alt: "Zoffers Cloud Kitchen",
+        alt: "Zoffers Cloud Kitchen India",
       }
     ],
   }

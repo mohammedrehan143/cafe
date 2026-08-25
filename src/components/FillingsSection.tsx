@@ -12,14 +12,14 @@ export default function FillingsSection() {
   const [slideIndex, setSlideIndex] = useState(0);
 
   const fillings = [
-    { id: 1, title: 'Charcoal BBQ Pork', image: 'https://banhmivietnam.xyz/img/Fillings%201.png', price: '$9.50', tag: 'House Classic' },
-    { id: 2, title: 'Honey Lemongrass Chicken', image: 'https://banhmivietnam.xyz/img/Fillings%202.png', price: '$9.00', tag: 'Charred Honey' },
-    { id: 3, title: 'Braised Tomato Meatballs', image: 'https://banhmivietnam.xyz/img/Fillings%203.png', price: '$10.00', tag: 'Slow Simmer' },
+    { id: 1, title: 'Smoky Tandoor Spiced Chicken', image: 'https://banhmivietnam.xyz/img/Fillings%201.png', price: '$9.50', tag: 'Charcoal Grilled' },
+    { id: 2, title: 'Charred Honey Glazed Paneer', image: 'https://banhmivietnam.xyz/img/Fillings%202.png', price: '$9.00', tag: '100% Vegetarian' },
+    { id: 3, title: 'Slow-Braised Tomato Meatballs', image: 'https://banhmivietnam.xyz/img/Fillings%203.png', price: '$10.00', tag: 'Slow Simmer' },
     { id: 4, title: 'King Oyster Mushroom & Tofu', image: 'https://banhmivietnam.xyz/img/Fillings%204.png', price: '$8.50', tag: '100% Vegan' },
-    { id: 5, title: 'Classic Savory Deli Roll', image: 'https://banhmivietnam.xyz/img/Fillings%205.png', price: '$9.00', tag: 'House Pate' },
+    { id: 5, title: 'Classic Savory Spiced Deli Roll', image: 'https://banhmivietnam.xyz/img/Fillings%205.png', price: '$9.00', tag: 'House Pate' },
     { id: 6, title: 'Golden Sunny Egg & Glaze', image: 'https://banhmivietnam.xyz/img/Fillings%206.png', price: '$8.00', tag: 'Morning Energy' },
-    { id: 7, title: 'Crispy Crackling Pork Belly', image: 'https://banhmivietnam.xyz/img/Fillings%207.png', price: '$10.50', tag: 'Extra Crunch' },
-    { id: 8, title: 'Sizzling Angus Steak & Onion', image: 'https://banhmivietnam.xyz/img/Fillings%208.png', price: '$12.00', tag: 'Chef Special' },
+    { id: 7, title: 'Crispy Crackling Herb Belly', image: 'https://banhmivietnam.xyz/img/Fillings%207.png', price: '$10.50', tag: 'Extra Crunch' },
+    { id: 8, title: 'Pepper Crusted Angus Roast', image: 'https://banhmivietnam.xyz/img/Fillings%208.png', price: '$12.00', tag: 'Chef Special' },
   ];
 
   const handlePrev = () => {
@@ -110,7 +110,7 @@ export default function FillingsSection() {
         {/* Carousel Container with Half Circle Top & Bottom Curves */}
         <div className="relative pt-12 pb-16">
           <p className="text-center font-sans text-base sm:text-xl text-banhmi-dark/70 max-w-xl mx-auto mb-10">
-            Zoffers offers distinct artisan fillings and can be paired with our specialty coffees and iced teas
+            Zoffers offers distinct artisan fillings paired with single-origin Indian coffees and iced green teas
           </p>
 
           {/* Top Half Circle SVG Curve */}

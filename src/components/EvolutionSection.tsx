@@ -17,25 +17,25 @@ export default function EvolutionSection() {
   const milestones = [
     {
       year: '1859',
-      title: 'The Origin',
+      title: 'The Heritage Craft',
       yearImg: 'https://banhmivietnam.xyz/img/1859.svg',
-      desc: 'Rooted in heritage baking traditions, mastering the delicate science of light, shattered crusts and slow dough fermentation.',
+      desc: 'Mastering the delicate science of light, shattered glass-like crusts and natural sourdough fermentation.',
       image: 'https://banhmivietnam.xyz/img/Banh%20mi%201859.png',
       reverse: false,
     },
     {
       year: '1958',
-      title: 'The Innovation',
+      title: 'The Indian Craft Fusion',
       yearImg: 'https://banhmivietnam.xyz/img/1958.svg',
-      desc: 'Infusing artisan baguettes with charcoal-seared meats, rich umami pates, and fresh pickled garden vegetables for the modern city lifestyle.',
+      desc: 'Infusing artisan baguettes with charcoal-seared tandoor marinades, rich herb butters, and tangy pickled garden accompaniments.',
       image: 'https://banhmivietnam.xyz/img/Banh%20mi%201958.png',
       reverse: true,
     },
     {
       year: '2011',
-      title: 'Global Acclaim',
+      title: 'Pan-India Cloud Kitchens',
       yearImg: 'https://banhmivietnam.xyz/img/2011.svg',
-      desc: 'Recognized as an iconic culinary ambassador representing creativity, speed, and uncompromising taste in cloud kitchen gastronomy.',
+      desc: 'Delivering hot, crispy gourmet baguettes and single-origin filter coffees in under 25 minutes across Bengaluru, Mumbai, and Delhi.',
       image: 'https://banhmivietnam.xyz/img/Banh%20mi%202011.png',
       reverse: false,
     },
@@ -62,7 +62,7 @@ export default function EvolutionSection() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-base sm:text-xl text-banhmi-dark/70 font-sans max-w-xl mx-auto"
           >
-            From artisanal culinary roots to a gourmet cloud kitchen icon
+            Bringing the world&apos;s crunchiest artisan baguettes and gourmet cloud kitchen craft to India
           </motion.p>
         </div>
 
