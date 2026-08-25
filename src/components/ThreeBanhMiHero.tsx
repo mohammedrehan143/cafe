@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { ArrowDown, ShoppingBag, ChefHat, Sparkles, UtensilsCrossed, Search } from 'lucide-react';
+import { ShoppingBag, ChefHat, UtensilsCrossed, Search } from 'lucide-react';
 import { useOrder } from '@/context/OrderContext';
 import Link from 'next/link';
 
@@ -25,7 +25,7 @@ export default function ThreeBanhMiHero() {
   return (
     <section
       id="hero"
-      className="relative min-h-[100svh] w-full bg-[#FFF8F0] pt-20 sm:pt-24 pb-12 flex flex-col justify-between overflow-hidden select-none"
+      className="relative min-h-[100svh] w-full bg-[#FFF8F0] pt-4 sm:pt-6 pb-8 sm:pb-12 flex flex-col justify-between overflow-hidden select-none"
     >
       {/* Top Navbar Row - Responsive & Mobile-Fit */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 w-full flex items-center justify-between z-30 gap-2 sm:gap-4">
@@ -44,7 +44,7 @@ export default function ThreeBanhMiHero() {
         </div>
 
         {/* Center Tag / Brand */}
-        <div className="flex items-center space-x-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-banhmi-card border border-banhmi-red/20 shadow-warm-sm flex-shrink-0">
+        <div className="flex items-center space-x-2 px-3 sm:px-4 py-1.5 rounded-full bg-banhmi-card border border-banhmi-red/20 shadow-warm-sm flex-shrink-0">
           <span className="w-2 h-2 rounded-full bg-banhmi-red animate-ping inline-block" />
           <span className="font-display tracking-wider text-xs sm:text-sm uppercase text-banhmi-red font-bold truncate max-w-[140px] sm:max-w-none">
             #TheTasteOfLove
@@ -66,7 +66,7 @@ export default function ThreeBanhMiHero() {
           {/* Full Menu Link (Mobile) */}
           <Link
             href="/menu"
-            className="lg:hidden px-2.5 sm:px-3 py-1.5 rounded-full bg-cream-200 text-banhmi-dark hover:bg-cream-300 font-display text-xs uppercase tracking-wider transition-colors font-bold"
+            className="lg:hidden px-3 py-1.5 rounded-full bg-cream-200 text-banhmi-dark hover:bg-cream-300 font-display text-xs uppercase tracking-wider transition-colors font-bold"
           >
             Menu
           </Link>
@@ -96,86 +96,157 @@ export default function ThreeBanhMiHero() {
         </div>
       </div>
 
-      {/* Middle Huge Split Kinetic Typography & Center 3D Food */}
-      <div className="relative my-auto w-full max-w-7xl mx-auto px-4 py-6 sm:py-8 flex flex-col items-center justify-center">
-        {/* Massive 3D Text Container */}
-        <div className="w-full flex flex-col lg:flex-row items-center justify-between relative z-10">
-          {/* Left Text */}
+      {/* Middle Hero Section: Optimized for Both Mobile & Desktop Viewports */}
+      <div className="relative my-auto w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 flex flex-col items-center justify-center">
+        
+        {/* DESKTOP LAYOUT (lg:flex) */}
+        <div className="hidden lg:flex w-full items-center justify-between relative z-10">
           <motion.h1
             initial={{ x: -200, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-            className="font-display text-6xl sm:text-8xl md:text-[10rem] lg:text-[12rem] xl:text-[14rem] leading-[0.88] uppercase font-extrabold text-banhmi-dark tracking-tighter text-center lg:text-left"
+            className="font-display text-[11rem] xl:text-[13rem] leading-[0.88] uppercase font-extrabold text-banhmi-dark tracking-tighter text-left"
           >
             Zoffers
           </motion.h1>
 
-          {/* Right Text */}
+          {/* Desktop Center Floating Sandwich */}
+          <div
+            className="w-[480px] xl:w-[560px] aspect-square flex items-center justify-center pointer-events-none relative"
+            style={{
+              transform: `translate(${mousePos.x * 0.35}px, ${mousePos.y * 0.35}px)`,
+              transition: 'transform 0.15s ease-out',
+            }}
+          >
+            {/* Rotating Sunburst Background */}
+            <div className="absolute inset-0 flex items-center justify-center animate-spin-slow">
+              <Image
+                src="https://banhmivietnam.xyz/img/Hero%20banh%20mi%20circle%20bg.png"
+                alt="Zoffers Circular Sunburst Background"
+                width={560}
+                height={560}
+                className="w-full h-full object-contain opacity-90 drop-shadow-md"
+                priority
+              />
+            </div>
+
+            {/* Main 3D Sandwich Image */}
+            <motion.div
+              initial={{ scale: 0, rotate: 180, opacity: 0 }}
+              animate={{ scale: 1, rotate: 0, opacity: 1 }}
+              transition={{ duration: 1.2, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="relative z-10 w-[90%] h-[90%] animate-float-gentle"
+            >
+              <Image
+                src="https://banhmivietnam.xyz/img/Hero%20banh%20mi.png"
+                alt="Zoffers Crispy Artisan Baguette"
+                fill
+                className="object-contain drop-shadow-2xl"
+                priority
+              />
+            </motion.div>
+
+            {/* Floating 3D Ingredients */}
+            <motion.div
+              animate={{ y: [0, -14, 0], rotate: [0, 15, 0] }}
+              transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut' }}
+              className="absolute -top-4 right-4 w-24 h-24 z-30"
+              style={{ transform: `translate(${mousePos.x * -0.7}px, ${mousePos.y * -0.7}px)` }}
+            >
+              <Image src="https://banhmivietnam.xyz/img/Chilli.png" alt="Fresh Chili" fill className="object-contain drop-shadow-lg" />
+            </motion.div>
+
+            <motion.div
+              animate={{ y: [0, 14, 0], rotate: [0, -12, 0] }}
+              transition={{ repeat: Infinity, duration: 5, ease: 'easeInOut', delay: 0.4 }}
+              className="absolute -bottom-4 left-4 w-28 h-28 z-30"
+              style={{ transform: `translate(${mousePos.x * 0.6}px, ${mousePos.y * 0.6}px)` }}
+            >
+              <Image src="https://banhmivietnam.xyz/img/Coriander.png" alt="Fresh Herbs" fill className="object-contain drop-shadow-lg" />
+            </motion.div>
+          </div>
+
           <motion.h1
             initial={{ x: 200, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-            className="font-display text-6xl sm:text-8xl md:text-[10rem] lg:text-[12rem] xl:text-[14rem] leading-[0.88] uppercase font-extrabold text-banhmi-dark tracking-tighter text-center lg:text-right"
+            className="font-display text-[11rem] xl:text-[13rem] leading-[0.88] uppercase font-extrabold text-banhmi-dark tracking-tighter text-right"
           >
             Kitchen
           </motion.h1>
         </div>
 
-        {/* Center Floating 3D Sandwich with Rotating Circle Background */}
-        <div
-          className="absolute z-20 w-[260px] sm:w-[380px] md:w-[500px] lg:w-[600px] aspect-square flex items-center justify-center pointer-events-none"
-          style={{
-            transform: `translate(${mousePos.x * 0.35}px, ${mousePos.y * 0.35}px)`,
-            transition: 'transform 0.15s ease-out',
-          }}
-        >
-          {/* Rotating Sunburst Background */}
-          <div className="absolute inset-0 flex items-center justify-center animate-spin-slow">
-            <Image
-              src="https://banhmivietnam.xyz/img/Hero%20banh%20mi%20circle%20bg.png"
-              alt="Zoffers Circular Sunburst Background"
-              width={600}
-              height={600}
-              className="w-full h-full object-contain opacity-90 drop-shadow-md"
-              priority
-            />
+        {/* MOBILE & TABLET LAYOUT (lg:hidden) - Crystal Clear Name Visibility */}
+        <div className="lg:hidden w-full flex flex-col items-center justify-center my-1 relative">
+          {/* Top Brand Word: ZOFFERS */}
+          <motion.h1
+            initial={{ y: -40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="font-display text-6xl sm:text-7xl md:text-8xl leading-none uppercase font-black text-banhmi-dark tracking-tight text-center z-10"
+          >
+            Zoffers
+          </motion.h1>
+
+          {/* Center 3D Floating Food */}
+          <div className="relative w-[230px] sm:w-[280px] md:w-[340px] aspect-square my-1 sm:my-2 flex items-center justify-center pointer-events-none z-20">
+            {/* Rotating Sunburst Background */}
+            <div className="absolute inset-0 flex items-center justify-center animate-spin-slow">
+              <Image
+                src="https://banhmivietnam.xyz/img/Hero%20banh%20mi%20circle%20bg.png"
+                alt="Zoffers Circular Background"
+                width={340}
+                height={340}
+                className="w-full h-full object-contain opacity-90 drop-shadow-sm"
+                priority
+              />
+            </div>
+
+            {/* 3D Sandwich Image */}
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.9, delay: 0.2 }}
+              className="relative z-10 w-[92%] h-[92%] animate-float-gentle"
+            >
+              <Image
+                src="https://banhmivietnam.xyz/img/Hero%20banh%20mi.png"
+                alt="Zoffers Crispy Baguette"
+                fill
+                className="object-contain drop-shadow-xl"
+                priority
+              />
+            </motion.div>
+
+            {/* Mobile Floating Chili & Coriander */}
+            <motion.div
+              animate={{ y: [0, -10, 0], rotate: [0, 12, 0] }}
+              transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+              className="absolute -top-2 right-1 w-14 h-14 sm:w-16 sm:h-16 z-30"
+            >
+              <Image src="https://banhmivietnam.xyz/img/Chilli.png" alt="Fresh Chili" fill className="object-contain drop-shadow-md" />
+            </motion.div>
+
+            <motion.div
+              animate={{ y: [0, 10, 0], rotate: [0, -10, 0] }}
+              transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut', delay: 0.3 }}
+              className="absolute -bottom-2 left-1 w-16 h-16 sm:w-20 sm:h-20 z-30"
+            >
+              <Image src="https://banhmivietnam.xyz/img/Coriander.png" alt="Fresh Coriander" fill className="object-contain drop-shadow-md" />
+            </motion.div>
           </div>
 
-          {/* Main 3D Sandwich Image */}
-          <motion.div
-            initial={{ scale: 0, rotate: 180, opacity: 0 }}
-            animate={{ scale: 1, rotate: 0, opacity: 1 }}
-            transition={{ duration: 1.2, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 w-[90%] h-[90%] animate-float-gentle"
+          {/* Bottom Brand Word: KITCHEN */}
+          <motion.h1
+            initial={{ y: 40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.8, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+            className="font-display text-5xl sm:text-6xl md:text-7xl leading-none uppercase font-black text-banhmi-red tracking-tight text-center z-10"
           >
-            <Image
-              src="https://banhmivietnam.xyz/img/Hero%20banh%20mi.png"
-              alt="Zoffers Crispy Artisan Baguette"
-              fill
-              className="object-contain drop-shadow-2xl"
-              priority
-            />
-          </motion.div>
-
-          {/* Floating 3D Ingredients */}
-          <motion.div
-            animate={{ y: [0, -14, 0], rotate: [0, 15, 0] }}
-            transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut' }}
-            className="absolute -top-4 right-4 w-16 h-16 sm:w-24 sm:h-24 z-30"
-            style={{ transform: `translate(${mousePos.x * -0.7}px, ${mousePos.y * -0.7}px)` }}
-          >
-            <Image src="https://banhmivietnam.xyz/img/Chilli.png" alt="Fresh Chili" fill className="object-contain drop-shadow-lg" />
-          </motion.div>
-
-          <motion.div
-            animate={{ y: [0, 14, 0], rotate: [0, -12, 0] }}
-            transition={{ repeat: Infinity, duration: 5, ease: 'easeInOut', delay: 0.4 }}
-            className="absolute -bottom-4 left-4 w-20 h-20 sm:w-28 sm:h-28 z-30"
-            style={{ transform: `translate(${mousePos.x * 0.6}px, ${mousePos.y * 0.6}px)` }}
-          >
-            <Image src="https://banhmivietnam.xyz/img/Coriander.png" alt="Fresh Herbs" fill className="object-contain drop-shadow-lg" />
-          </motion.div>
+            Kitchen
+          </motion.h1>
         </div>
+
       </div>
 
       {/* Hero Bottom Row */}
@@ -191,10 +262,10 @@ export default function ThreeBanhMiHero() {
         </div>
 
         {/* Center/Right: Action buttons */}
-        <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3 w-full md:w-auto">
           <button
             onClick={() => setCartDrawerOpen(true)}
-            className="px-6 py-3 rounded-full bg-banhmi-red hover:bg-banhmi-redDark text-white font-display text-base tracking-wider uppercase transition-all shadow-warm-md hover:scale-105 flex items-center space-x-2 active:scale-95"
+            className="w-full sm:w-auto px-6 py-3 rounded-full bg-banhmi-red hover:bg-banhmi-redDark text-white font-display text-base tracking-wider uppercase transition-all shadow-warm-md hover:scale-105 flex items-center justify-center space-x-2 active:scale-95"
           >
             <ShoppingBag className="w-4 h-4 text-[#FFB703]" />
             <span>Order Fresh Crunch</span>
@@ -202,7 +273,7 @@ export default function ThreeBanhMiHero() {
 
           <Link
             href="/menu"
-            className="px-5 py-3 rounded-full bg-white border border-banhmi-gold/40 hover:bg-cream-200 text-banhmi-dark font-display text-base tracking-wider uppercase transition-colors shadow-warm-sm flex items-center space-x-1.5"
+            className="w-full sm:w-auto px-5 py-3 rounded-full bg-white border border-banhmi-gold/40 hover:bg-cream-200 text-banhmi-dark font-display text-base tracking-wider uppercase transition-colors shadow-warm-sm flex items-center justify-center space-x-1.5"
           >
             <UtensilsCrossed className="w-4 h-4 text-banhmi-red" />
             <span>Explore Full Menu</span>
