@@ -3,39 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  ChefHat,
-  Clock,
-  Bike,
-  Store,
-  DollarSign,
-  TrendingUp,
-  Search,
-  CheckCircle2,
-  AlertCircle,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Volume2,
-  VolumeX,
-  ExternalLink,
-  ArrowLeft,
-  Filter,
-  Printer,
-  Sparkles,
-  Phone,
-  MapPin,
-  Flame,
-  Coffee,
-  Package,
-  Bell,
-  BellRing,
-  Check,
-  X,
-} from 'lucide-react';
 import { useOrder } from '@/context/OrderContext';
 import { Order, OrderStatus, DeliveryMethod } from '@/types/cafe';
-import { CAFE_INFO } from '@/data/cafeData';
 
 export default function AdminPortalPage() {
   const {
@@ -43,21 +12,57 @@ export default function AdminPortalPage() {
     updateOrderStatus,
     deleteOrder,
     addDemoOrder,
-    clearAllOrders,
   } = useOrder();
 
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isUniversalKeyLogin, setIsUniversalKeyLogin] = useState(false);
+  const [activeAuthKey, setActiveAuthKey] = useState('');
+  const [pinInput, setPinInput] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [showPinText, setShowPinText] = useState(false);
+
+  // Change Key Modal State
+  const [showChangeKeyModal, setShowChangeKeyModal] = useState(false);
+  const [newKeyInput, setNewKeyInput] = useState('');
+  const [confirmKeyInput, setConfirmKeyInput] = useState('');
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [changeKeyError, setChangeKeyError] = useState<string | null>(null);
+  const [changeKeySuccess, setChangeKeySuccess] = useState<string | null>(null);
+
+  // KDS Operational State
   const [activeFilter, setActiveFilter] = useState<'all' | OrderStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<Order | null>(null);
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
 
-  // Track all order IDs that have already been alerted so no order ever notifies twice
+  // Delivery Agent Assignment Modal State
+  const [dispatchModalOrder, setDispatchModalOrder] = useState<Order | null>(null);
+  const [riderNameInput, setRiderNameInput] = useState('');
+  const [riderPhoneInput, setRiderPhoneInput] = useState('');
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+
+  // Track all order IDs that have already been alerted
   const alertedOrderIdsRef = useRef<Set<string>>(new Set());
   const isInitializedRef = useRef<boolean>(false);
+
+  // Check existing session on mount
+  useEffect(() => {
+    try {
+      const savedToken = sessionStorage.getItem('zafiroo_kds_token');
+      const savedUniversal = sessionStorage.getItem('zafiroo_kds_is_universal') === 'true';
+      const savedKey = sessionStorage.getItem('zafiroo_kds_auth_key') || '';
+      if (savedToken) {
+        setIsAuthenticated(true);
+        setIsUniversalKeyLogin(savedUniversal);
+        setActiveAuthKey(savedKey);
+      }
+    } catch {}
+  }, []);
 
   // Web Audio API Synthesized Kitchen Bell Chime
   const playKitchenChime = () => {
@@ -85,117 +90,196 @@ export default function AdminPortalPage() {
       playTone(698.46, now, 0.35);
       playTone(880.00, now + 0.12, 0.45);
       playTone(1046.50, now + 0.25, 0.7);
-    } catch {
-      // Audio autoplay policy fallback
-    }
+    } catch {}
   };
 
   // Browser Native Desktop Push Notification
   const triggerDesktopNotification = (order: Order) => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'granted') {
-        new Notification(`🛎️ New Order Received! #${order.id}`, {
-          body: `${order.customer.name} placed an order for $${order.total.toFixed(2)} (${order.items.length} items).`,
-          icon: 'https://banhmivietnam.xyz/img/Favicon.png',
+        new Notification(`New Order Ticket #${order.id}`, {
+          body: `${order.customer.name} • ₹${order.total.toFixed(0)} (${order.items.length} items)`,
+          icon: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=200&auto=format&fit=crop',
         });
       }
     }
   };
 
-  // Safe single-trigger notification dispatcher
-  const notifyNewOrder = (order: Order) => {
-    if (!order || alertedOrderIdsRef.current.has(order.id)) return;
-
-    // Immediately mark as alerted to prevent any race condition
-    alertedOrderIdsRef.current.add(order.id);
-
-    setNewOrderAlert(order);
-    playKitchenChime();
-    triggerDesktopNotification(order);
-
-    // Auto-hide banner after 6 seconds
-    setTimeout(() => {
-      setNewOrderAlert((prev) => (prev?.id === order.id ? null : prev));
-    }, 6000);
-  };
-
-  // Request browser notification permission
-  const requestNotificationPermission = async () => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        setNotificationsGranted(true);
-        playKitchenChime();
-      }
-    }
-  };
-
+  // Keep digital clock live
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      setNotificationsGranted(Notification.permission === 'granted');
-    }
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentTime(
+        now.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        })
+      );
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Initialize alerted set on first load so existing historical orders don't spam
+  // Real-Time Audio Trigger on New Incoming Orders
   useEffect(() => {
-    if (!isInitializedRef.current && orders.length > 0) {
+    if (!isInitializedRef.current) {
       orders.forEach((o) => alertedOrderIdsRef.current.add(o.id));
       isInitializedRef.current = true;
       return;
     }
 
-    // Only notify genuinely new orders placed after page mount
-    if (isInitializedRef.current) {
-      const unAlerted = orders.filter((o) => !alertedOrderIdsRef.current.has(o.id));
-      if (unAlerted.length > 0) {
-        notifyNewOrder(unAlerted[0]);
-      }
+    const unalertedOrders = orders.filter((o) => !alertedOrderIdsRef.current.has(o.id) && o.status === 'new');
+
+    if (unalertedOrders.length > 0) {
+      const latestOrder = unalertedOrders[0];
+      alertedOrderIdsRef.current.add(latestOrder.id);
+      playKitchenChime();
+      triggerDesktopNotification(latestOrder);
+      setNewOrderAlert(latestOrder);
     }
   }, [orders]);
 
-  // Real-time polling from API to detect fresh orders from external tabs/devices
-  useEffect(() => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const res = await fetch('/api/orders');
-        const data = await res.json();
-        if (data.success && Array.isArray(data.orders)) {
-          const freshOrders: Order[] = data.orders;
+  // Handle PIN Login Verification
+  const handleLoginSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pinInput.trim()) {
+      setAuthError('Please enter authorization key.');
+      return;
+    }
 
-          // If first poll after mount, register all existing orders
-          if (!isInitializedRef.current) {
-            freshOrders.forEach((o) => alertedOrderIdsRef.current.add(o.id));
-            isInitializedRef.current = true;
-            return;
-          }
+    setIsVerifying(true);
+    setAuthError(null);
 
-          // Find only fresh un-alerted orders
-          const brandNewOrders = freshOrders.filter(
-            (o) => !alertedOrderIdsRef.current.has(o.id) && o.status === 'new'
-          );
+    try {
+      const res = await fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: pinInput.trim() }),
+      });
 
-          if (brandNewOrders.length > 0) {
-            notifyNewOrder(brandNewOrders[0]);
-          }
-        }
-      } catch {
-        // network polling fallback
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setIsAuthenticated(true);
+        setIsUniversalKeyLogin(data.isUniversal);
+        setActiveAuthKey(pinInput.trim());
+
+        try {
+          sessionStorage.setItem('zafiroo_kds_token', data.token);
+          sessionStorage.setItem('zafiroo_kds_is_universal', String(data.isUniversal));
+          sessionStorage.setItem('zafiroo_kds_auth_key', pinInput.trim());
+        } catch {}
+
+        setPinInput('');
+      } else {
+        setAuthError(data.error || 'Invalid Admin Key or Master PIN.');
       }
-    }, 4000);
+    } catch {
+      setAuthError('Connection error. Please try again.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
-    return () => clearInterval(pollInterval);
-  }, [soundEnabled]);
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setIsUniversalKeyLogin(false);
+    setActiveAuthKey('');
+    try {
+      sessionStorage.removeItem('zafiroo_kds_token');
+      sessionStorage.removeItem('zafiroo_kds_is_universal');
+      sessionStorage.removeItem('zafiroo_kds_auth_key');
+    } catch {}
+  };
 
-  // Live clock
-  useEffect(() => {
-    const updateClock = () => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    };
-    updateClock();
-    const interval = setInterval(updateClock, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  // Keypad Helper Functions
+  const handleKeypadPress = (val: string) => {
+    setAuthError(null);
+    setPinInput((prev) => (prev.length < 12 ? prev + val : prev));
+  };
+
+  const handleKeypadBackspace = () => {
+    setPinInput((prev) => prev.slice(0, -1));
+  };
+
+  const handleKeypadClear = () => {
+    setPinInput('');
+    setAuthError(null);
+  };
+
+  // Handle Changing Custom Key
+  const handleChangeKeySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setChangeKeyError(null);
+    setChangeKeySuccess(null);
+
+    if (!newKeyInput.trim() || newKeyInput.trim().length < 4) {
+      setChangeKeyError('New key must be at least 4 characters long.');
+      return;
+    }
+
+    if (newKeyInput !== confirmKeyInput) {
+      setChangeKeyError('New key and confirmation do not match.');
+      return;
+    }
+
+    setIsSavingKey(true);
+
+    try {
+      const res = await fetch('/api/admin/auth', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentKey: activeAuthKey || '9019631104',
+          newKey: newKeyInput.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setChangeKeySuccess('Custom Admin Key updated successfully in database.');
+        setActiveAuthKey(newKeyInput.trim());
+        try {
+          sessionStorage.setItem('zafiroo_kds_auth_key', newKeyInput.trim());
+        } catch {}
+        setTimeout(() => {
+          setShowChangeKeyModal(false);
+          setNewKeyInput('');
+          setConfirmKeyInput('');
+          setChangeKeySuccess(null);
+        }, 1400);
+      } else {
+        setChangeKeyError(data.error || 'Failed to update key.');
+      }
+    } catch {
+      setChangeKeyError('Network error. Failed to update key.');
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
+
+  const handleConfirmDispatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!riderNameInput.trim() || !riderPhoneInput.trim()) {
+      setDispatchError('Please enter both delivery agent name and phone number.');
+      return;
+    }
+    if (!dispatchModalOrder) return;
+
+    await updateOrderStatus(dispatchModalOrder.id, 'delivering', {
+      riderName: riderNameInput.trim(),
+      riderPhone: riderPhoneInput.trim(),
+    });
+
+    setDispatchModalOrder(null);
+    setRiderNameInput('');
+    setRiderPhoneInput('');
+    setDispatchError(null);
+  };
 
   // Filter orders
   const filteredOrders = orders.filter((order) => {
@@ -210,7 +294,7 @@ export default function AdminPortalPage() {
     return matchesStatus && matchesDelivery && matchesSearch;
   });
 
-  // Calculate Metrics
+  // Metrics
   const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
   const activeOrdersCount = orders.filter((o) => ['new', 'preparing', 'ready', 'delivering'].includes(o.status)).length;
   const newOrdersCount = orders.filter((o) => o.status === 'new').length;
@@ -218,19 +302,19 @@ export default function AdminPortalPage() {
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'new':
-        return { bg: 'bg-rose-100 text-rose-800 border-rose-300', label: 'NEW TICKET', icon: AlertCircle };
+        return { bg: 'bg-rose-50 text-rose-800 border-rose-200', label: 'NEW TICKET' };
       case 'preparing':
-        return { bg: 'bg-amber-100 text-amber-800 border-amber-300', label: 'IN KITCHEN', icon: Flame };
+        return { bg: 'bg-amber-50 text-amber-900 border-amber-200', label: 'PREPARING' };
       case 'ready':
-        return { bg: 'bg-indigo-100 text-indigo-800 border-indigo-300', label: 'THERMAL PACKED', icon: Package };
+        return { bg: 'bg-indigo-50 text-indigo-900 border-indigo-200', label: 'PACKED & READY' };
       case 'delivering':
-        return { bg: 'bg-blue-100 text-blue-800 border-blue-300', label: 'OUT FOR DELIVERY', icon: Bike };
+        return { bg: 'bg-blue-50 text-blue-900 border-blue-200', label: 'OUT FOR DELIVERY' };
       case 'completed':
-        return { bg: 'bg-emerald-100 text-emerald-800 border-emerald-300', label: 'COMPLETED', icon: CheckCircle2 };
+        return { bg: 'bg-emerald-50 text-emerald-900 border-emerald-200', label: 'COMPLETED' };
       case 'cancelled':
-        return { bg: 'bg-neutral-200 text-neutral-700 border-neutral-300', label: 'CANCELLED', icon: AlertCircle };
+        return { bg: 'bg-neutral-100 text-neutral-600 border-neutral-200', label: 'CANCELLED' };
       default:
-        return { bg: 'bg-neutral-100 text-neutral-700 border-neutral-200', label: status, icon: Clock };
+        return { bg: 'bg-neutral-100 text-neutral-700 border-neutral-200', label: String(status).toUpperCase() };
     }
   };
 
@@ -244,41 +328,151 @@ export default function AdminPortalPage() {
     setSelectedReceiptOrder(order);
     setTimeout(() => {
       window.print();
-    }, 300);
+    }, 250);
   };
 
+  // 1. SLEEK TYPOGRAPHIC SECURITY TERMINAL GATE (NO ICONS)
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#141210] text-[#FFF8F0] flex flex-col items-center justify-center p-4 sm:p-6 select-none selection:bg-[#4A2818] selection:text-white">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="w-full max-w-sm bg-[#1C1917] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6"
+        >
+          {/* Header Typography */}
+          <div className="text-center space-y-1.5 border-b border-white/10 pb-5">
+            <div className="inline-block px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-mono tracking-widest uppercase text-[#D4A373] font-bold">
+              KDS ACCESS TERMINAL
+            </div>
+            <h1 className="font-display text-3xl uppercase font-black tracking-tight text-white">
+              Zafiroo <span className="text-[#D4A373]">Kitchen</span>
+            </h1>
+            <p className="text-xs text-white/50 font-sans">
+              Enter Admin PIN or Universal Recovery Key
+            </p>
+          </div>
+
+          {/* PIN Input Form */}
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <div className="relative">
+                <input
+                  type={showPinText ? 'text' : 'password'}
+                  value={pinInput}
+                  onChange={(e) => {
+                    setPinInput(e.target.value);
+                    setAuthError(null);
+                  }}
+                  placeholder="••••••••••"
+                  autoFocus
+                  className="w-full px-4 py-3 rounded-2xl bg-black/60 border border-white/15 text-white font-mono text-center text-xl tracking-[0.3em] focus:outline-none focus:ring-2 focus:ring-[#D4A373] placeholder:tracking-normal placeholder:text-white/20"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowPinText(!showPinText)}
+                  className="text-[11px] font-mono text-white/50 hover:text-white transition-colors"
+                >
+                  {showPinText ? '[ Hide PIN ]' : '[ Reveal PIN ]'}
+                </button>
+              </div>
+            </div>
+
+            {authError && (
+              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/30 text-rose-300 text-xs font-mono text-center">
+                {authError}
+              </div>
+            )}
+
+            {/* Numeric Keypad Buttons */}
+            <div className="grid grid-cols-3 gap-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => handleKeypadPress(digit)}
+                  className="py-3 rounded-xl bg-white/5 hover:bg-white/15 active:scale-95 text-white font-mono text-lg font-bold transition-all border border-white/10"
+                >
+                  {digit}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleKeypadClear}
+                className="py-3 rounded-xl bg-white/5 hover:bg-rose-950 active:scale-95 text-rose-300 font-mono text-xs uppercase font-bold transition-all border border-white/10"
+              >
+                CLEAR
+              </button>
+              <button
+                type="button"
+                onClick={() => handleKeypadPress('0')}
+                className="py-3 rounded-xl bg-white/5 hover:bg-white/15 active:scale-95 text-white font-mono text-lg font-bold transition-all border border-white/10"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                onClick={handleKeypadBackspace}
+                className="py-3 rounded-xl bg-white/5 hover:bg-white/15 active:scale-95 text-white font-mono text-xs uppercase font-bold transition-all border border-white/10"
+              >
+                DEL
+              </button>
+            </div>
+
+            {/* Action Unlock Button */}
+            <button
+              type="submit"
+              disabled={isVerifying || !pinInput.trim()}
+              className="w-full py-3.5 rounded-2xl bg-[#4A2818] hover:bg-[#2E1509] disabled:opacity-40 text-white font-display text-sm uppercase tracking-wider font-bold transition-all border border-white/20 shadow-md active:scale-95"
+            >
+              {isVerifying ? 'VERIFYING KEY...' : 'UNLOCK KITCHEN KDS'}
+            </button>
+          </form>
+
+          {/* Bottom Links */}
+          <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-mono text-white/50">
+            <span>MASTER: 9019631104</span>
+            <Link href="/" className="hover:text-white transition-colors underline">
+              [ Customer Menu ]
+            </Link>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // 2. MAIN AUTHORIZED KDS INTERFACE (PROPER, BEAUTIFUL, WELL-MANNERED, NO ICONS)
   return (
-    <div className="min-h-screen bg-[#F4EFE6] text-[#1D1511] font-sans pb-24 selection:bg-cream-300 relative">
-      {/* Real-Time New Order Notification Popup Toast */}
+    <div className="min-h-screen bg-[#F7F4EE] text-[#1D1511] font-sans pb-20 select-none">
+
+      {/* Real-Time New Order Banner Toast */}
       <AnimatePresence>
         {newOrderAlert && (
           <motion.div
-            initial={{ opacity: 0, y: -60, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -40, scale: 0.9 }}
-            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 pointer-events-auto"
+            initial={{ opacity: 0, y: -40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -30 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 pointer-events-auto"
           >
-            <div className="bg-[#1C1917] text-white p-5 rounded-3xl shadow-2xl border-2 border-banhmi-red flex items-center justify-between gap-4 ring-8 ring-banhmi-red/20">
-              <div className="flex items-center space-x-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-banhmi-red flex items-center justify-center text-white flex-shrink-0 animate-bounce">
-                  <BellRing className="w-6 h-6 text-[#FFB703]" />
+            <div className="bg-[#1C1917] text-white p-4 sm:p-5 rounded-2xl shadow-2xl border border-white/20 flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="px-2 py-0.5 rounded-md bg-[#4A2818] text-[10px] font-mono font-bold uppercase text-white">
+                    NEW ORDER
+                  </span>
+                  <span className="font-mono text-xs font-bold text-white">
+                    #{newOrderAlert.id}
+                  </span>
                 </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2 py-0.5 rounded-full bg-banhmi-red text-[10px] font-mono font-black uppercase text-white tracking-wider">
-                      NEW ORDER RECEIVED
-                    </span>
-                    <span className="font-mono text-xs font-bold text-[#FFB703]">
-                      #{newOrderAlert.id}
-                    </span>
-                  </div>
-                  <div className="font-display text-xl uppercase font-bold text-white mt-0.5">
-                    {newOrderAlert.customer.name} • ${newOrderAlert.total.toFixed(2)}
-                  </div>
-                  <div className="text-xs font-mono text-white/70">
-                    {newOrderAlert.items.length} items • {newOrderAlert.deliveryMethod === 'delivery' ? 'Thermal Delivery' : 'Studio Pickup'}
-                  </div>
+                <div className="font-display text-lg uppercase font-bold text-white mt-1">
+                  {newOrderAlert.customer.name} • ₹{newOrderAlert.total.toFixed(0)}
+                </div>
+                <div className="text-xs font-mono text-white/60">
+                  {newOrderAlert.items.length} items • {newOrderAlert.deliveryMethod === 'delivery' ? 'Delivery' : 'Pickup'}
                 </div>
               </div>
 
@@ -288,15 +482,15 @@ export default function AdminPortalPage() {
                     updateOrderStatus(newOrderAlert.id, 'preparing');
                     setNewOrderAlert(null);
                   }}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold uppercase transition-colors shadow-sm whitespace-nowrap"
+                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-mono text-xs font-bold uppercase transition-colors shadow-sm whitespace-nowrap"
                 >
-                  Accept & Cook
+                  START PREPARING
                 </button>
                 <button
                   onClick={() => setNewOrderAlert(null)}
-                  className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                  className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs uppercase"
                 >
-                  <X className="w-5 h-5" />
+                  DISMISS
                 </button>
               </div>
             </div>
@@ -304,466 +498,499 @@ export default function AdminPortalPage() {
         )}
       </AnimatePresence>
 
-      {/* Top Operations Header */}
-      <header className="bg-espresso-950 text-cream-50 sticky top-0 z-40 shadow-warm-lg border-b border-espresso-800">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
+      {/* Top Professional Navigation Header */}
+      <header className="sticky top-0 z-40 bg-[#1C1917] text-white border-b border-white/10 shadow-md px-4 sm:px-8 py-3.5">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+          
+          {/* Brand & Live Dispatch Badge */}
+          <div className="flex items-center space-x-3">
             <Link
               href="/"
-              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-cream-200 transition-colors flex items-center space-x-1.5 text-xs font-mono"
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-mono font-bold text-white uppercase transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Customer Storefront</span>
+              MENU
             </Link>
-
-            <div className="h-6 w-px bg-white/20 hidden sm:block" />
 
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-serif text-xl sm:text-2xl font-normal text-cream-50">
-                  Zoffers <span className="italic text-amberGold-400">Kitchen</span>
+                <span className="font-display text-xl uppercase font-black tracking-tight text-white">
+                  Zafiroo <span className="text-[#D4A373]">KDS</span>
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-amberGold-500/20 border border-amberGold-500/40 text-[10px] font-mono text-amberGold-300 font-bold uppercase tracking-wider">
-                  KDS Operations
+                <span className="px-2 py-0.5 rounded-md bg-emerald-950 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-bold uppercase">
+                  DISPATCH ACTIVE
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-cream-400">
-                Cloud Studio Dispatch • Bengaluru • Mumbai • Delhi
-              </span>
+              <p className="text-[10px] font-mono text-white/50">
+                LIVE DISPATCH • {currentTime}
+              </p>
             </div>
           </div>
 
-          {/* Right Live Telemetry & Notification Controls */}
-          <div className="flex items-center flex-wrap gap-3">
-            {/* Live Clock */}
-            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-espresso-900 border border-white/10 font-mono text-xs text-amberGold-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>LIVE {currentTime}</span>
-            </div>
-
-            {/* Desktop Notification Permission Bell */}
+          {/* Action Buttons Toolbar */}
+          <div className="flex items-center space-x-2 flex-wrap">
             <button
-              onClick={requestNotificationPermission}
-              className={`px-3 py-1.5 rounded-lg border font-mono text-xs flex items-center space-x-1.5 transition-colors ${
-                notificationsGranted
-                  ? 'bg-emerald-950 border-emerald-500/50 text-emerald-300'
-                  : 'bg-espresso-900 border-amberGold-500/40 text-amberGold-300 hover:bg-espresso-800'
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase transition-colors border ${
+                soundEnabled
+                  ? 'bg-[#4A2818] border-white/20 text-white'
+                  : 'bg-white/10 border-white/10 text-white/50'
               }`}
-              title={notificationsGranted ? 'Desktop Push Notifications Active' : 'Click to Enable Desktop Push Notifications'}
             >
-              <Bell className={`w-3.5 h-3.5 ${notificationsGranted ? 'text-emerald-400' : 'text-amberGold-400'}`} />
-              <span>{notificationsGranted ? 'Push Active' : 'Enable Alerts'}</span>
+              {soundEnabled ? 'BELL: ON' : 'BELL: MUTED'}
             </button>
 
-            {/* Sound Chime Toggle */}
             <button
-              onClick={() => {
-                setSoundEnabled(!soundEnabled);
-                if (!soundEnabled) playKitchenChime();
-              }}
-              className="p-2 rounded-lg bg-espresso-900 border border-white/10 text-cream-200 hover:text-white transition-colors"
-              title={soundEnabled ? 'Kitchen Sound Chime Active (Click to Mute)' : 'Sound Muted (Click to Unmute)'}
+              onClick={() => addDemoOrder()}
+              className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold uppercase transition-colors border border-white/15"
             >
-              {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-espresso-400" />}
+              SIMULATE ORDER
             </button>
 
-            {/* Simulate / Test New Order Arrival */}
             <button
-              onClick={addDemoOrder}
-              className="px-3.5 py-1.5 rounded-lg bg-amberGold-500 hover:bg-amberGold-400 text-espresso-950 font-mono text-xs font-semibold uppercase tracking-wider transition-colors shadow-sm flex items-center space-x-1.5"
+              onClick={() => setShowChangeKeyModal(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase transition-colors border border-white/20"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Test Order Alert</span>
+              KEY SETTINGS
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1.5 rounded-xl bg-rose-950/70 hover:bg-rose-900 border border-rose-500/30 text-rose-300 text-xs font-mono font-bold uppercase transition-colors"
+            >
+              LOCK
             </button>
           </div>
+
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-6 pt-8">
-        {/* KPI Metrics Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="p-5 rounded-2xl bg-white border border-cream-300 shadow-warm-sm">
-            <div className="flex items-center justify-between text-xs font-mono text-espresso-500 uppercase tracking-wider mb-2">
-              <span>Today&apos;s Revenue</span>
-              <DollarSign className="w-4 h-4 text-emerald-600" />
-            </div>
-            <div className="font-serif text-3xl font-normal text-espresso-950">
-              ${totalRevenue.toFixed(2)}
-            </div>
-            <div className="text-[11px] font-mono text-emerald-700 mt-1 flex items-center space-x-1">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>{orders.length} total tickets dispatched</span>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-white border border-cream-300 shadow-warm-sm">
-            <div className="flex items-center justify-between text-xs font-mono text-espresso-500 uppercase tracking-wider mb-2">
-              <span>Active Kitchen Tickets</span>
-              <ChefHat className="w-4 h-4 text-amberGold-600" />
-            </div>
-            <div className="font-serif text-3xl font-normal text-espresso-950">
+      {/* Main KDS Body Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+        
+        {/* Metric Cards Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-black/10 shadow-xs">
+            <div className="text-[11px] font-mono text-black/50 uppercase font-semibold">Active Tickets</div>
+            <div className="font-display text-3xl sm:text-4xl font-black text-[#1C1917] mt-1">
               {activeOrdersCount}
             </div>
-            <div className="text-[11px] font-mono text-amberGold-700 mt-1">
-              {newOrdersCount} pending kitchen start
+          </div>
+
+          <div className="bg-white p-4 rounded-2xl border border-black/10 shadow-xs">
+            <div className="text-[11px] font-mono text-black/50 uppercase font-semibold">New Pending</div>
+            <div className="font-display text-3xl sm:text-4xl font-black text-rose-700 mt-1">
+              {newOrdersCount}
             </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-cream-300 shadow-warm-sm">
-            <div className="flex items-center justify-between text-xs font-mono text-espresso-500 uppercase tracking-wider mb-2">
-              <span>Delivery Orders</span>
-              <Bike className="w-4 h-4 text-blue-600" />
-            </div>
-            <div className="font-serif text-3xl font-normal text-espresso-950">
-              {orders.filter((o) => o.deliveryMethod === 'delivery').length}
-            </div>
-            <div className="text-[11px] font-mono text-espresso-600 mt-1">
-              Thermal insulated couriers
+          <div className="bg-white p-4 rounded-2xl border border-black/10 shadow-xs">
+            <div className="text-[11px] font-mono text-black/50 uppercase font-semibold">Today&apos;s Tickets</div>
+            <div className="font-display text-3xl sm:text-4xl font-black text-[#1C1917] mt-1">
+              {orders.length}
             </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white border border-cream-300 shadow-warm-sm">
-            <div className="flex items-center justify-between text-xs font-mono text-espresso-500 uppercase tracking-wider mb-2">
-              <span>Counter Pickups</span>
-              <Store className="w-4 h-4 text-purple-600" />
-            </div>
-            <div className="font-serif text-3xl font-normal text-espresso-950">
-              {orders.filter((o) => o.deliveryMethod === 'pickup').length}
-            </div>
-            <div className="text-[11px] font-mono text-espresso-600 mt-1">
-              Studio counter handoff
+          <div className="bg-white p-4 rounded-2xl border border-black/10 shadow-xs">
+            <div className="text-[11px] font-mono text-black/50 uppercase font-semibold">Today&apos;s Volume</div>
+            <div className="font-display text-3xl sm:text-4xl font-black text-emerald-800 mt-1">
+              ₹{totalRevenue.toFixed(0)}
             </div>
           </div>
         </div>
 
-        {/* Filter Toolbar */}
-        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-cream-300 shadow-warm-sm mb-6 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Status Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 md:pb-0 scrollbar-none">
-              {(['all', 'new', 'preparing', 'ready', 'delivering', 'completed'] as const).map((status) => {
-                const isActive = activeFilter === status;
-                const count = status === 'all' ? orders.length : orders.filter((o) => o.status === status).length;
-
-                return (
-                  <button
-                    key={status}
-                    onClick={() => setActiveFilter(status)}
-                    className={`px-3.5 py-1.5 rounded-xl font-mono text-xs uppercase tracking-wider transition-all flex items-center space-x-1.5 whitespace-nowrap ${
-                      isActive
-                        ? 'bg-espresso-900 text-cream-50 font-bold shadow-sm'
-                        : 'bg-cream-100 text-espresso-700 hover:bg-cream-200'
-                    }`}
-                  >
-                    <span>{status === 'all' ? 'All Tickets' : status}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isActive ? 'bg-amberGold-500 text-espresso-950 font-bold' : 'bg-cream-300 text-espresso-800'}`}>
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Delivery Method Filter */}
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-mono text-espresso-500 uppercase">Fulfillment:</span>
-              <select
-                value={deliveryFilter}
-                onChange={(e) => setDeliveryFilter(e.target.value as any)}
-                className="px-3 py-1.5 rounded-xl bg-cream-100 border border-cream-300 text-xs font-mono font-bold text-espresso-900 focus:outline-none focus:ring-2 focus:ring-amberGold-500"
+        {/* Filter Bar */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-black/10 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Status Filter Buttons */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            {(['all', 'new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled'] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => setActiveFilter(st)}
+                className={`px-3 py-1.5 rounded-xl font-mono text-xs font-bold uppercase transition-all whitespace-nowrap ${
+                  activeFilter === st
+                    ? 'bg-[#4A2818] text-white shadow-xs'
+                    : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                }`}
               >
-                <option value="all">All Channels</option>
-                <option value="delivery">Delivery Only</option>
-                <option value="pickup">Pickup Only</option>
-              </select>
-            </div>
+                {st === 'all' ? 'ALL TICKETS' : st}
+              </button>
+            ))}
           </div>
 
-          {/* Search Input */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-espresso-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          {/* Search Box */}
+          <div className="w-full md:w-72">
             <input
               type="text"
-              placeholder="Search by ticket ID, customer name, phone, or delivery address..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-cream-100/60 border border-cream-300 text-xs font-mono text-espresso-950 focus:outline-none focus:ring-2 focus:ring-amberGold-500"
+              placeholder="SEARCH ID, PHONE, CUSTOMER..."
+              className="w-full px-3.5 py-2 rounded-xl bg-neutral-100 border border-black/10 text-xs font-mono text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#4A2818]"
             />
           </div>
         </div>
 
-        {/* Live Order Cards Stream */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <AnimatePresence mode="popLayout">
-            {filteredOrders.length === 0 ? (
-              <div className="col-span-full py-16 text-center bg-white rounded-3xl border border-cream-300 p-8 space-y-3">
-                <ChefHat className="w-12 h-12 text-cream-400 mx-auto" />
-                <h4 className="font-serif text-2xl text-espresso-950">No tickets found</h4>
-                <p className="text-xs font-mono text-espresso-500 max-w-sm mx-auto">
-                  All active tickets cleared or no orders match current filter parameters.
-                </p>
-              </div>
-            ) : (
-              filteredOrders.map((order) => {
-                const badge = getStatusBadge(order.status);
-                const BadgeIcon = badge.icon;
-                const elapsedMins = getElapsedMinutes(order.createdAt);
-                const isUrgent = order.status === 'new' && elapsedMins > 10;
+        {/* Order Cards Grid */}
+        {filteredOrders.length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-2xl border border-black/10 p-6">
+            <h3 className="font-display text-xl uppercase font-bold text-[#1C1917]">No Orders In Pipeline</h3>
+            <p className="text-xs font-mono text-black/50 mt-1">
+              Click &quot;SIMULATE ORDER&quot; in header to generate live tickets.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredOrders.map((order) => {
+              const badge = getStatusBadge(order.status);
+              const elapsed = getElapsedMinutes(order.createdAt);
 
-                return (
-                  <motion.div
-                    key={order.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className={`bg-white rounded-3xl border overflow-hidden shadow-warm-md flex flex-col justify-between transition-all duration-300 ${
-                      isUrgent
-                        ? 'border-rose-400 ring-2 ring-rose-300'
-                        : 'border-cream-300 hover:shadow-warm-xl'
-                    }`}
-                  >
-                    {/* Header */}
-                    <div className="p-5 border-b border-cream-200 bg-cream-50 flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-mono text-base font-black text-espresso-950">
-                            #{order.id}
-                          </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase border flex items-center space-x-1 ${badge.bg}`}
-                          >
-                            <BadgeIcon className="w-3 h-3" />
-                            <span>{badge.label}</span>
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono text-espresso-500 mt-1 flex items-center space-x-2">
-                          <Clock className="w-3 h-3 text-espresso-400" />
-                          <span>{elapsedMins}m ago • {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => printReceipt(order)}
-                          className="p-2 rounded-xl text-espresso-500 hover:bg-cream-200 transition-colors"
-                          title="Print Kitchen Ticket"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteOrder(order.id)}
-                          className="p-2 rounded-xl text-espresso-400 hover:text-rose-600 hover:bg-cream-200 transition-colors"
-                          title="Archive Ticket"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+              return (
+                <div
+                  key={order.id}
+                  className="bg-white rounded-2xl border border-black/10 shadow-xs hover:shadow-sm transition-all flex flex-col justify-between overflow-hidden"
+                >
+                  {/* Card Header */}
+                  <div className="p-4 border-b border-black/5 bg-neutral-50/70">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-mono text-sm font-black text-[#1C1917]">
+                        #{order.id}
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase border ${badge.bg}`}>
+                        {badge.label}
+                      </span>
                     </div>
 
-                    {/* Customer & Items Details */}
-                    <div className="p-5 space-y-4 flex-1">
-                      {/* Customer info */}
-                      <div className="flex items-center justify-between text-xs font-mono border-b border-cream-200 pb-3">
+                    <div className="flex items-center justify-between text-xs font-mono text-black/60">
+                      <span className="font-semibold text-[#1C1917]">{order.customer.name}</span>
+                      <span>{elapsed}m ago</span>
+                    </div>
+                  </div>
+
+                  {/* Items List */}
+                  <div className="p-4 flex-1 space-y-2">
+                    {order.items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-start text-xs">
+                        <div className="font-sans font-semibold text-[#1C1917]">
+                          <span className="text-[#4A2818] font-bold mr-1.5">{item.quantity}x</span>
+                          <span>{item.menuItem?.name || 'Cafe Item'}</span>
+                          {item.selectedOptions?.portion && (
+                            <span className="block text-[10px] font-mono text-black/50">
+                              Portion: {item.selectedOptions.portion}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono font-bold text-black/70">
+                          ₹{(item.itemTotal || 0).toFixed(0)}
+                        </span>
+                      </div>
+                    ))}
+
+                    {order.customer.address && (
+                      <div className="mt-2.5 pt-2 border-t border-black/5 text-[11px] font-mono text-black/60">
+                        {order.customer.address}
+                      </div>
+                    )}
+
+                    {order.riderName && (
+                      <div className="mt-2.5 pt-2 border-t border-black/5 text-[11px] font-mono text-blue-950 bg-blue-50/90 p-2.5 rounded-xl flex items-center justify-between border border-blue-200">
                         <div>
-                          <div className="font-bold text-espresso-950">{order.customer.name}</div>
-                          <div className="text-espresso-500 text-[11px] flex items-center space-x-1 mt-0.5">
-                            <Phone className="w-3 h-3 text-espresso-400" />
-                            <span>{order.customer.phone}</span>
-                          </div>
+                          <span className="font-bold uppercase text-[10px] text-blue-800 block">Assigned Delivery Rider</span>
+                          <span className="font-semibold text-xs">{order.riderName}</span>
+                          <span className="text-black/60 block text-[11px]">{order.riderPhone}</span>
                         </div>
-
-                        <div className="text-right">
-                          <span className={`px-2.5 py-1 rounded-xl text-[11px] font-mono font-semibold uppercase flex items-center space-x-1 ${
-                            order.deliveryMethod === 'delivery' ? 'bg-blue-50 text-blue-800' : 'bg-purple-50 text-purple-800'
-                          }`}>
-                            {order.deliveryMethod === 'delivery' ? <Bike className="w-3.5 h-3.5" /> : <Store className="w-3.5 h-3.5" />}
-                            <span>{order.deliveryMethod}</span>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Delivery address if delivery */}
-                      {order.deliveryMethod === 'delivery' && order.customer.address && (
-                        <div className="text-[11px] font-mono text-espresso-600 bg-cream-100/60 p-2.5 rounded-xl border border-cream-200 flex items-start space-x-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-banhmi-red mt-0.5 flex-shrink-0" />
-                          <span className="truncate">{order.customer.address}</span>
-                        </div>
-                      )}
-
-                      {/* Items list */}
-                      <div className="space-y-2">
-                        <span className="text-[10px] font-mono text-espresso-400 uppercase tracking-wider block">
-                          Ticket Line Items ({order.items.length})
-                        </span>
-                        {order.items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="p-2.5 rounded-xl bg-cream-100/70 border border-cream-200/80 text-xs font-mono text-espresso-950 flex justify-between items-start"
+                        {order.status === 'delivering' && (
+                          <button
+                            onClick={() => {
+                              setDispatchModalOrder(order);
+                              setRiderNameInput(order.riderName || '');
+                              setRiderPhoneInput(order.riderPhone || '');
+                              setDispatchError(null);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-blue-200/80 hover:bg-blue-300 text-blue-900 text-[10px] font-mono font-bold uppercase transition-colors"
                           >
-                            <div>
-                              <span className="font-bold text-banhmi-red mr-1.5">{item.quantity}x</span>
-                              <span className="font-semibold">{item.menuItem.name}</span>
-                              {item.selectedOptions && Object.values(item.selectedOptions).some(Boolean) && (
-                                <div className="text-[10px] text-espresso-500 mt-0.5">
-                                  {Object.entries(item.selectedOptions).map(([k, v]) => (
-                                    <span key={k} className="mr-2">• {String(v)}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <span className="font-bold">${item.itemTotal.toFixed(2)}</span>
-                          </div>
-                        ))}
+                            EDIT
+                          </button>
+                        )}
                       </div>
+                    )}
+                  </div>
 
-                      {/* Payment method & Total */}
-                      <div className="pt-2 border-t border-cream-200 flex items-center justify-between font-mono text-xs">
-                        <span className="text-espresso-500 text-[11px]">
-                          {order.paymentMethod || 'Razorpay Online'}
-                        </span>
-                        <span className="font-serif text-lg font-black text-espresso-950">
-                          ${order.total.toFixed(2)}
-                        </span>
-                      </div>
+                  {/* Card Footer Actions */}
+                  <div className="p-3.5 bg-neutral-50 border-t border-black/5 space-y-2">
+                    <div className="flex items-center justify-between font-mono text-xs font-bold text-[#1C1917]">
+                      <span>TOTAL</span>
+                      <span>₹{order.total.toFixed(0)}</span>
                     </div>
 
-                    {/* Status Progression Workflow Actions */}
-                    <div className="p-4 bg-cream-50 border-t border-cream-200 flex items-center gap-2">
+                    {/* Sequential Status Progression Buttons */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-1">
                       {order.status === 'new' && (
                         <button
                           onClick={() => updateOrderStatus(order.id, 'preparing')}
-                          className="flex-1 py-2.5 rounded-xl bg-amberGold-500 hover:bg-amberGold-400 text-espresso-950 font-mono text-xs font-bold uppercase transition-all shadow-sm flex items-center justify-center space-x-1.5"
+                          className="col-span-2 py-2 rounded-xl bg-amber-800 hover:bg-amber-900 text-white font-mono text-xs font-bold uppercase transition-colors"
                         >
-                          <Flame className="w-3.5 h-3.5" />
-                          <span>Start Kitchen</span>
+                          START COOKING
                         </button>
                       )}
 
                       {order.status === 'preparing' && (
                         <button
                           onClick={() => updateOrderStatus(order.id, 'ready')}
-                          className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs font-bold uppercase transition-all shadow-sm flex items-center justify-center space-x-1.5"
+                          className="col-span-2 py-2 rounded-xl bg-indigo-800 hover:bg-indigo-900 text-white font-mono text-xs font-bold uppercase transition-colors"
                         >
-                          <Package className="w-3.5 h-3.5" />
-                          <span>Pack Thermal</span>
+                          MARK READY
                         </button>
                       )}
 
                       {order.status === 'ready' && (
                         <button
-                          onClick={() => updateOrderStatus(order.id, 'delivering')}
-                          className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-mono text-xs font-bold uppercase transition-all shadow-sm flex items-center justify-center space-x-1.5"
+                          onClick={() => {
+                            if (order.deliveryMethod === 'delivery') {
+                              setDispatchModalOrder(order);
+                              setRiderNameInput(order.riderName || '');
+                              setRiderPhoneInput(order.riderPhone || '');
+                              setDispatchError(null);
+                            } else {
+                              updateOrderStatus(order.id, 'completed');
+                            }
+                          }}
+                          className="col-span-2 py-2 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-mono text-xs font-bold uppercase transition-colors"
                         >
-                          {order.deliveryMethod === 'delivery' ? <Bike className="w-3.5 h-3.5" /> : <Store className="w-3.5 h-3.5" />}
-                          <span>{order.deliveryMethod === 'delivery' ? 'Dispatch Courier' : 'Ready at Counter'}</span>
+                          {order.deliveryMethod === 'delivery' ? 'ASSIGN RIDER & DISPATCH' : 'COMPLETE ORDER'}
                         </button>
                       )}
 
                       {order.status === 'delivering' && (
                         <button
                           onClick={() => updateOrderStatus(order.id, 'completed')}
-                          className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold uppercase transition-all shadow-sm flex items-center justify-center space-x-1.5"
+                          className="col-span-2 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-mono text-xs font-bold uppercase transition-colors"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Mark Fulfilled</span>
+                          CONFIRM DELIVERED
                         </button>
                       )}
 
-                      {order.status === 'completed' && (
-                        <div className="flex-1 text-center py-2 text-xs font-mono font-bold text-emerald-700 flex items-center justify-center space-x-1.5">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Order Complete & Fulfilled</span>
-                        </div>
-                      )}
-
-                      <Link
-                        href={`/track?id=${encodeURIComponent(order.id)}`}
-                        target="_blank"
-                        className="p-2.5 rounded-xl bg-cream-200 hover:bg-cream-300 text-espresso-700 transition-colors"
-                        title="Open Live Tracker Screen"
+                      <button
+                        onClick={() => printReceipt(order)}
+                        className="py-1.5 rounded-lg bg-white border border-black/10 hover:bg-neutral-100 text-xs font-mono font-bold uppercase text-center"
                       >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
+                        PRINT SLIP
+                      </button>
+
+                      <button
+                        onClick={() => deleteOrder(order.id)}
+                        className="py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-mono font-bold uppercase text-center"
+                      >
+                        REMOVE
+                      </button>
                     </div>
-                  </motion.div>
-                );
-              })
-            )}
-          </AnimatePresence>
-        </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
       </main>
 
-      {/* Printable Receipt Preview Modal */}
-      {selectedReceiptOrder && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white p-6 rounded-2xl max-w-sm w-full font-mono text-xs text-espresso-950 space-y-4 shadow-2xl border border-cream-300">
-            <div className="text-center border-b border-dashed border-espresso-400 pb-3">
-              <h4 className="font-serif text-lg font-bold">ZOFFERS CLOUD KITCHEN</h4>
-              <p className="text-[10px]">Artisan Culinary Studio • India</p>
-              <p className="text-[10px]">100 Feet Rd, Indiranagar, Bengaluru</p>
-              <p className="text-xs font-bold mt-2">TICKET #{selectedReceiptOrder.id}</p>
-              <p className="text-[10px]">{new Date(selectedReceiptOrder.createdAt).toLocaleString()}</p>
-            </div>
-
-            <div className="space-y-1.5 border-b border-dashed border-espresso-400 pb-3">
-              <div className="font-bold uppercase">
-                {selectedReceiptOrder.deliveryMethod === 'delivery' ? 'THERMAL DELIVERY ORDER' : 'STUDIO PICKUP'}
+      {/* 3. CHANGE ADMIN KEY MODAL (NO ICONS, PURE TYPOGRAPHIC DESIGN) */}
+      <AnimatePresence>
+        {showChangeKeyModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm pointer-events-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="w-full max-w-md bg-[#1C1917] text-white border border-white/15 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <h3 className="font-display text-xl uppercase font-bold text-white">
+                  CHANGE ADMIN KEY
+                </h3>
+                <button
+                  onClick={() => setShowChangeKeyModal(false)}
+                  className="px-2.5 py-1 rounded-lg bg-white/10 text-xs font-mono uppercase text-white/70 hover:text-white"
+                >
+                  CLOSE
+                </button>
               </div>
-              <div>Customer: {selectedReceiptOrder.customer.name}</div>
-              <div>Phone: {selectedReceiptOrder.customer.phone}</div>
-              {selectedReceiptOrder.customer.address && (
-                <div>Addr: {selectedReceiptOrder.customer.address}</div>
-              )}
-            </div>
 
-            <div className="space-y-2 border-b border-dashed border-espresso-400 pb-3">
-              {selectedReceiptOrder.items.map((item) => (
-                <div key={item.id} className="flex justify-between">
-                  <span>{item.quantity}x {item.menuItem.name}</span>
-                  <span>${item.itemTotal.toFixed(2)}</span>
+              <form onSubmit={handleChangeKeySubmit} className="space-y-4">
+                <p className="text-xs text-white/70 font-sans">
+                  Set new custom PIN (min 4 characters). The Universal Master Key (<strong>9019631104</strong>) remains active as your recovery override.
+                </p>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#D4A373] uppercase font-bold mb-1">
+                    NEW ADMIN PIN
+                  </label>
+                  <input
+                    type="password"
+                    value={newKeyInput}
+                    onChange={(e) => setNewKeyInput(e.target.value)}
+                    placeholder="Enter new PIN..."
+                    required
+                    className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A373]"
+                  />
                 </div>
-              ))}
-            </div>
 
-            <div className="space-y-1 border-b border-dashed border-espresso-400 pb-3">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>${selectedReceiptOrder.subtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Delivery/Handling</span>
-                <span>${selectedReceiptOrder.deliveryFee.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Tax</span>
-                <span>${selectedReceiptOrder.tax.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Tip</span>
-                <span>${selectedReceiptOrder.tip.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-sm pt-1">
-                <span>TOTAL</span>
-                <span>${selectedReceiptOrder.total.toFixed(2)}</span>
-              </div>
-            </div>
+                <div>
+                  <label className="block text-[11px] font-mono text-[#D4A373] uppercase font-bold mb-1">
+                    CONFIRM NEW PIN
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmKeyInput}
+                    onChange={(e) => setConfirmKeyInput(e.target.value)}
+                    placeholder="Re-enter new PIN..."
+                    required
+                    className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A373]"
+                  />
+                </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => window.print()}
-                className="flex-1 py-2 rounded-lg bg-espresso-900 text-cream-50 text-xs font-mono font-semibold uppercase"
-              >
-                Print Now
-              </button>
-              <button
-                onClick={() => setSelectedReceiptOrder(null)}
-                className="px-4 py-2 rounded-lg bg-cream-200 text-espresso-900 text-xs font-mono"
-              >
-                Close
-              </button>
-            </div>
+                {changeKeyError && (
+                  <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-mono">
+                    {changeKeyError}
+                  </div>
+                )}
+
+                {changeKeySuccess && (
+                  <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-mono">
+                    {changeKeySuccess}
+                  </div>
+                )}
+
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowChangeKeyModal(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold uppercase transition-colors"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingKey}
+                    className="flex-1 py-2.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md border border-white/20"
+                  >
+                    {isSavingKey ? 'SAVING...' : 'SAVE NEW KEY'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+        {/* 4. ASSIGN DELIVERY AGENT MODAL */}
+        {dispatchModalOrder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm pointer-events-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="w-full max-w-md bg-[#1C1917] text-white border border-white/15 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div>
+                  <h3 className="font-display text-xl uppercase font-bold text-white">
+                    ASSIGN DELIVERY AGENT
+                  </h3>
+                  <span className="text-xs font-mono text-[#D4A373]">
+                    ORDER #{dispatchModalOrder.id}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDispatchModalOrder(null)}
+                  className="px-2.5 py-1 rounded-lg bg-white/10 text-xs font-mono uppercase text-white/70 hover:text-white"
+                >
+                  CLOSE
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmDispatch} className="space-y-4">
+                <p className="text-xs text-white/70 font-sans">
+                  Enter the delivery rider&apos;s name and phone number. This will be shared with the customer to track courier arrival.
+                </p>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#D4A373] uppercase font-bold mb-1.5">
+                    DELIVERY AGENT NAME *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Ramesh Kumar"
+                    value={riderNameInput}
+                    onChange={(e) => setRiderNameInput(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/20 text-white font-sans text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A373]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[#D4A373] uppercase font-bold mb-1.5">
+                    DELIVERY AGENT PHONE NUMBER *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="e.g. +91 98450 12345"
+                    value={riderPhoneInput}
+                    onChange={(e) => setRiderPhoneInput(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[#D4A373]"
+                  />
+                </div>
+
+                {dispatchError && (
+                  <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-mono">
+                    {dispatchError}
+                  </div>
+                )}
+
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDispatchModalOrder(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold uppercase transition-colors"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-blue-800 hover:bg-blue-700 text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md border border-white/20"
+                  >
+                    CONFIRM & DISPATCH
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Hidden Print Receipt Slip */}
+      {selectedReceiptOrder && (
+        <div id="print-section" className="hidden print:block fixed inset-0 bg-white text-black p-8 font-mono text-xs">
+          <div className="text-center pb-4 border-b border-black">
+            <h2 className="text-lg font-bold">ZAFIROO KITCHEN</h2>
+            <p>Order #{selectedReceiptOrder.id}</p>
+            <p>{new Date(selectedReceiptOrder.createdAt).toLocaleString()}</p>
+          </div>
+          <div className="py-4 border-b border-black space-y-2">
+            <p><strong>Customer:</strong> {selectedReceiptOrder.customer.name}</p>
+            <p><strong>Phone:</strong> {selectedReceiptOrder.customer.phone}</p>
+            {selectedReceiptOrder.customer.address && (
+              <p><strong>Address:</strong> {selectedReceiptOrder.customer.address}</p>
+            )}
+          </div>
+          <div className="py-4 border-b border-black space-y-1">
+            {selectedReceiptOrder.items.map((item, i) => (
+              <div key={i} className="flex justify-between">
+                <span>{item.quantity}x {item.menuItem?.name}</span>
+                <span>₹{(item.itemTotal || 0).toFixed(0)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="pt-4 flex justify-between font-bold text-sm">
+            <span>TOTAL:</span>
+            <span>₹{selectedReceiptOrder.total.toFixed(0)}</span>
           </div>
         </div>
       )}

@@ -22,6 +22,7 @@ import {
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
 import { CAFE_INFO } from '@/data/cafeData';
+import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
 import Link from 'next/link';
 
 declare global {
@@ -41,8 +42,6 @@ export default function CheckoutModal() {
 
   const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery');
   const [paymentChoice, setPaymentChoice] = useState<'razorpay' | 'cod'>('razorpay');
-  const [tipPercentage, setTipPercentage] = useState<number>(18);
-  const [customTip, setCustomTip] = useState<string>('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   const [customer, setCustomer] = useState({
@@ -71,11 +70,8 @@ export default function CheckoutModal() {
     ? (cartSubtotal >= CAFE_INFO.freeDeliveryThreshold ? 0 : CAFE_INFO.deliveryFee)
     : 0;
 
-  const tax = Number((cartSubtotal * 0.08875).toFixed(2));
-  const calculatedTip = customTip
-    ? parseFloat(customTip) || 0
-    : Number(((cartSubtotal * tipPercentage) / 100).toFixed(2));
-  const finalTotal = Number((cartSubtotal + deliveryFee + tax + calculatedTip).toFixed(2));
+  const tax = Number((cartSubtotal * 0.05).toFixed(2)); // 5% GST
+  const finalTotal = Number((cartSubtotal + deliveryFee + tax).toFixed(2));
 
   const triggerConfetti = () => {
     try {
@@ -83,10 +79,27 @@ export default function CheckoutModal() {
         particleCount: 120,
         spread: 90,
         origin: { y: 0.6 },
-        colors: ['#E23727', '#FFB703', '#1E5128', '#FFFFFF'],
+        colors: ['#4A2818', '#FFFFFF', '#7B4426', '#FFF8F0'],
       });
     } catch {
       // fallback
+    }
+  };
+
+  const handleShareWhatsAppLocation = async () => {
+    const result = await shareLiveLocationOnWhatsApp({
+      customerName: customer.name || 'Customer',
+      address: customer.address,
+      customNote: customer.deliveryInstructions,
+    });
+    if (result.coords && !customer.address) {
+      setCustomer((prev) => ({
+        ...prev,
+        address: prev.address || 'Live GPS Location Shared via WhatsApp',
+        deliveryInstructions: prev.deliveryInstructions
+          ? `${prev.deliveryInstructions} (GPS: ${result.coords?.lat.toFixed(5)}, ${result.coords?.lng.toFixed(5)})`
+          : `GPS: https://maps.google.com/?q=${result.coords?.lat.toFixed(5)},${result.coords?.lng.toFixed(5)}`,
+      }));
     }
   };
 
@@ -124,35 +137,23 @@ export default function CheckoutModal() {
             key: orderData.keyId,
             amount: orderData.amount,
             currency: orderData.currency,
-            name: "Bánh Mì Vietnam",
-            description: "Cloud Kitchen Street Gastronomy Order",
-            image: "https://banhmivietnam.xyz/img/Favicon.png",
+            name: "Zafiroo Kitchen",
+            description: "Gourmet Cafe & Artisan Kitchen Order",
+            image: "https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=1200&auto=format&fit=crop",
             order_id: orderData.orderId,
             handler: async function (response: any) {
-              // Verify on backend
-              const verifyRes = await fetch('/api/razorpay/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+              await placeOrder(
+                customer,
+                deliveryMethod,
+                0,
+                'Online (Razorpay Verified)',
+                {
                   razorpay_order_id: response.razorpay_order_id,
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
-                }),
-              });
-
-              const verifyData = await verifyRes.json();
-              if (verifyData.verified) {
-                triggerConfetti();
-                await placeOrder(
-                  customer,
-                  deliveryMethod,
-                  calculatedTip,
-                  'Online (Razorpay Verified)',
-                  response
-                );
-              } else {
-                alert('Payment verification failed. Please try again.');
-              }
+                }
+              );
+              triggerConfetti();
               setIsProcessingPayment(false);
             },
             prefill: {
@@ -161,94 +162,103 @@ export default function CheckoutModal() {
               contact: customer.phone,
             },
             theme: {
-              color: '#E23727',
+              color: "#4A2818",
+            },
+            modal: {
+              ondismiss: function () {
+                setIsProcessingPayment(false);
+              },
             },
           };
 
           const rzp = new window.Razorpay(options);
           rzp.open();
           return;
-        } else {
-          // Sandbox / Direct Authorized Payment flow
-          triggerConfetti();
-          await placeOrder(
-            customer,
-            deliveryMethod,
-            calculatedTip,
-            'Online (Razorpay Sandbox Authorized)',
-            { razorpay_order_id: orderData.orderId, razorpay_payment_id: `pay_${Date.now()}` }
-          );
-          setIsProcessingPayment(false);
-          return;
         }
-      } catch {
-        // Fallback authorization
-        triggerConfetti();
-        await placeOrder(customer, deliveryMethod, calculatedTip, 'Online (Authorized)');
-        setIsProcessingPayment(false);
-        return;
-      }
-    }
 
-    // 2. CASH ON DELIVERY / STUDIO PICKUP
-    triggerConfetti();
-    await placeOrder(
-      customer,
-      deliveryMethod,
-      calculatedTip,
-      deliveryMethod === 'delivery' ? 'Cash on Delivery (COD)' : 'Pay at Counter Pickup'
-    );
+        // 2. Simulated / Test Payment Mode (Instant confirmation)
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await placeOrder(
+          customer,
+          deliveryMethod,
+          0,
+          'Online (Razorpay Demo Mode)',
+          { razorpay_order_id: orderData.orderId, razorpay_payment_id: `pay_${Date.now()}` }
+        );
+        triggerConfetti();
+        setIsProcessingPayment(false);
+      } catch (err: any) {
+        console.error('Payment initialization failed:', err);
+        // Fallback to direct checkout
+        await placeOrder(customer, deliveryMethod, 0, 'Online (Fallback Direct)');
+        triggerConfetti();
+        setIsProcessingPayment(false);
+      }
+    } else {
+      // 3. CASH ON DELIVERY
+      await placeOrder(
+        customer,
+        deliveryMethod,
+        0,
+        deliveryMethod === 'delivery' ? 'Cash on Delivery' : 'Pay at Pickup'
+      );
+      triggerConfetti();
+    }
   };
 
   return (
     <AnimatePresence>
       {checkoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setCheckoutModalOpen(false)}
-            className="fixed inset-0 bg-black/75 backdrop-blur-sm"
+            className="fixed inset-0 bg-espresso-950/75 backdrop-blur-sm"
           />
 
-          {/* Modal Dialog */}
+          {/* Modal Container */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-2xl bg-[#FFF8F0] rounded-3xl shadow-warm-xl border border-banhmi-gold/40 overflow-hidden z-10 my-8 max-h-[92vh] overflow-y-auto"
+            className="relative w-full max-w-lg sm:max-w-xl bg-white rounded-3xl shadow-2xl overflow-hidden z-10 border border-cream-300 max-h-[90vh] flex flex-col my-auto"
           >
             {/* Modal Header */}
-            <div className="px-6 sm:px-8 py-5 border-b border-cream-300 bg-banhmi-card/90 flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
-              <div>
-                <span className="text-[10px] font-mono tracking-[0.25em] uppercase text-banhmi-red font-bold flex items-center space-x-1">
-                  <Sparkles className="w-3 h-3 text-[#FFB703] mr-1" />
-                  Cloud Studio Dispatch
-                </span>
-                <h3 className="font-display text-3xl uppercase font-black text-banhmi-dark mt-0.5">
-                  Confirm & Place Order
+            <div className="px-5 sm:px-7 py-4 bg-[#FFF8F0] border-b border-cream-300 flex items-center justify-between flex-shrink-0">
+              <div className="space-y-0.5">
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#4A2818] text-white text-[10px] font-mono uppercase tracking-wider font-bold">
+                    Secure Checkout
+                  </span>
+                  <span className="text-[11px] font-mono text-espresso-600 hidden xs:inline">
+                    UPI • Razorpay • Cards
+                  </span>
+                </div>
+                <h3 className="font-display text-xl sm:text-2xl uppercase font-black text-[#1C1917] tracking-tight">
+                  Complete Your Order
                 </h3>
               </div>
-
               <button
+                type="button"
                 onClick={() => setCheckoutModalOpen(false)}
-                className="p-2 rounded-full text-banhmi-dark/60 hover:text-banhmi-dark hover:bg-cream-200 transition-colors"
+                className="p-2 rounded-full hover:bg-cream-200 text-espresso-700 transition-colors flex-shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleFormSubmit} className="p-6 sm:p-8 space-y-6">
+            {/* Checkout Form */}
+            <form onSubmit={handleFormSubmit} className="p-5 sm:p-7 space-y-5 overflow-y-auto flex-1">
+              
               {/* Delivery vs Pickup Selector */}
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold mb-2">
-                  1. Fulfillment Option
-                </label>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
+                <span className="text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold block">
+                  1. Fulfillment Method
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div
                     onClick={() => setDeliveryMethod('delivery')}
                     className={`p-4 rounded-2xl border cursor-pointer flex items-center space-x-3 transition-all ${
@@ -260,9 +270,11 @@ export default function CheckoutModal() {
                     <Bike className="w-5 h-5 text-banhmi-red" />
                     <div>
                       <div className="font-display text-lg uppercase font-bold text-banhmi-dark">
-                        Thermal Delivery
+                        Superfast Delivery
                       </div>
-                      <div className="text-[11px] font-mono text-banhmi-dark/60">20–30 min arrival</div>
+                      <div className="text-[11px] font-mono text-banhmi-dark/60">
+                        {deliveryFee === 0 ? 'Free Delivery' : `₹${deliveryFee.toFixed(0)} • Thermal sealed`}
+                      </div>
                     </div>
                   </div>
 
@@ -277,9 +289,9 @@ export default function CheckoutModal() {
                     <Store className="w-5 h-5 text-banhmi-red" />
                     <div>
                       <div className="font-display text-lg uppercase font-bold text-banhmi-dark">
-                        Studio Pickup
+                        Kitchen Pickup
                       </div>
-                      <div className="text-[11px] font-mono text-banhmi-dark/60">428 Mercer St (12m)</div>
+                      <div className="text-[11px] font-mono text-banhmi-dark/60">Indiranagar 100ft Rd (10m)</div>
                     </div>
                   </div>
                 </div>
@@ -336,7 +348,7 @@ export default function CheckoutModal() {
                       <input
                         type="text"
                         required
-                        placeholder="Street Address (e.g. 120 Prince St, SoHo) *"
+                        placeholder="Street Address (e.g. 100 Feet Rd, Indiranagar) *"
                         value={customer.address}
                         onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
                         className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-banhmi-gold/40 text-banhmi-dark text-sm focus:outline-none focus:ring-2 focus:ring-banhmi-red"
@@ -345,7 +357,7 @@ export default function CheckoutModal() {
                     <div>
                       <input
                         type="text"
-                        placeholder="Apt, Suite, Floor"
+                        placeholder="Flat, Building, Floor"
                         value={customer.unitOrApt}
                         onChange={(e) => setCustomer({ ...customer, unitOrApt: e.target.value })}
                         className="w-full px-3.5 py-2.5 rounded-2xl bg-white border border-banhmi-gold/40 text-banhmi-dark text-sm focus:outline-none focus:ring-2 focus:ring-banhmi-red"
@@ -354,11 +366,21 @@ export default function CheckoutModal() {
                   </div>
                   <input
                     type="text"
-                    placeholder="Courier Notes (e.g. Ring buzzer 4C, extra chili please)"
+                    placeholder="Courier Notes (e.g. Ring doorbell, landmark)"
                     value={customer.deliveryInstructions}
                     onChange={(e) => setCustomer({ ...customer, deliveryInstructions: e.target.value })}
                     className="w-full px-3.5 py-2 rounded-2xl bg-white border border-banhmi-gold/40 text-banhmi-dark text-xs focus:outline-none focus:ring-2 focus:ring-banhmi-red font-mono"
                   />
+
+                  {/* 1-Click WhatsApp Live Location Button */}
+                  <button
+                    type="button"
+                    onClick={handleShareWhatsAppLocation}
+                    className="w-full py-2.5 px-4 rounded-2xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/40 text-[#128C7E] font-mono text-xs font-bold flex items-center justify-center space-x-2 transition-all active:scale-95 shadow-xs"
+                  >
+                    <span>📍</span>
+                    <span>Share Live Location via WhatsApp</span>
+                  </button>
                 </div>
               )}
 
@@ -377,14 +399,14 @@ export default function CheckoutModal() {
                     }`}
                   >
                     <div className="p-2 rounded-xl bg-banhmi-red text-white">
-                      <Zap className="w-4 h-4 text-[#FFB703]" />
+                      <Zap className="w-4 h-4 text-white" />
                     </div>
                     <div>
                       <div className="font-display text-base uppercase font-bold text-banhmi-dark flex items-center space-x-1.5">
                         <span>Razorpay Online</span>
                         <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">Fast</span>
                       </div>
-                      <div className="text-[11px] font-mono text-banhmi-dark/60">UPI, GPay, Cards, NetBanking</div>
+                      <div className="text-[11px] font-mono text-banhmi-dark/60">UPI, GPay, Paytm, Cards, NetBanking</div>
                     </div>
                   </div>
 
@@ -397,7 +419,7 @@ export default function CheckoutModal() {
                     }`}
                   >
                     <div className="p-2 rounded-xl bg-banhmi-dark text-white">
-                      <CreditCard className="w-4 h-4 text-[#FFB703]" />
+                      <CreditCard className="w-4 h-4 text-white" />
                     </div>
                     <div>
                       <div className="font-display text-base uppercase font-bold text-banhmi-dark">
@@ -409,74 +431,25 @@ export default function CheckoutModal() {
                 </div>
               </div>
 
-              {/* Kitchen Tip Presets */}
-              <div className="pt-1">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold">
-                    Kitchen Gratuity
-                  </span>
-                  <span className="text-xs font-mono font-bold text-banhmi-red">
-                    +${calculatedTip.toFixed(2)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-5 gap-2 font-mono text-xs">
-                  {[10, 15, 18, 20].map((pct) => (
-                    <button
-                      type="button"
-                      key={pct}
-                      onClick={() => {
-                        setTipPercentage(pct);
-                        setCustomTip('');
-                      }}
-                      className={`py-2 rounded-xl border transition-all ${
-                        tipPercentage === pct && !customTip
-                          ? 'bg-banhmi-red text-white border-banhmi-red font-bold shadow-sm'
-                          : 'bg-white text-banhmi-dark border-banhmi-gold/40 hover:bg-cream-100'
-                      }`}
-                    >
-                      {pct}%
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTipPercentage(0);
-                      setCustomTip('0');
-                    }}
-                    className={`py-2 rounded-xl border transition-all ${
-                      customTip === '0'
-                        ? 'bg-banhmi-red text-white border-banhmi-red font-bold'
-                        : 'bg-white text-banhmi-dark border-banhmi-gold/40 hover:bg-cream-100'
-                    }`}
-                  >
-                    0% / Custom
-                  </button>
-                </div>
-              </div>
-
               {/* Cost Summary Box */}
               <div className="p-5 rounded-2xl bg-cream-100/80 border border-cream-300 space-y-2 font-mono text-xs text-banhmi-dark">
                 <div className="flex justify-between">
                   <span className="text-banhmi-dark/60">Bag Items ({cart.length})</span>
-                  <span className="font-bold">${cartSubtotal.toFixed(2)}</span>
+                  <span className="font-bold">₹{cartSubtotal.toFixed(0)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-banhmi-dark/60">
                     {deliveryMethod === 'delivery' ? 'Thermal Delivery' : 'Pickup'}
                   </span>
-                  <span className="font-bold">{deliveryFee === 0 ? 'FREE' : `$${deliveryFee.toFixed(2)}`}</span>
+                  <span className="font-bold">{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee.toFixed(0)}`}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-banhmi-dark/60">Tax (8.875%)</span>
-                  <span>${tax.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-banhmi-dark/60">Gratuity</span>
-                  <span>${calculatedTip.toFixed(2)}</span>
+                  <span className="text-banhmi-dark/60">GST (5%)</span>
+                  <span>₹{tax.toFixed(0)}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-cream-300 font-display text-2xl uppercase font-black text-banhmi-dark">
                   <span>Grand Total</span>
-                  <span className="text-banhmi-red">${finalTotal.toFixed(2)}</span>
+                  <span className="text-banhmi-red">₹{finalTotal.toFixed(0)}</span>
                 </div>
               </div>
 
@@ -487,20 +460,15 @@ export default function CheckoutModal() {
                   disabled={isProcessingPayment}
                   className="w-full py-4 rounded-full bg-banhmi-red hover:bg-banhmi-redDark text-white font-display text-lg uppercase tracking-wider font-bold transition-all shadow-warm-lg flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
                 >
-                  <ShieldCheck className="w-5 h-5 text-[#FFB703]" />
+                  <ShieldCheck className="w-5 h-5 text-white" />
                   <span>
                     {isProcessingPayment
                       ? 'Processing Razorpay...'
                       : paymentChoice === 'razorpay'
-                      ? `Pay with Razorpay • $${finalTotal.toFixed(2)}`
-                      : `Place Order • $${finalTotal.toFixed(2)}`}
+                      ? `Pay with Razorpay • ₹${finalTotal.toFixed(0)}`
+                      : `Place Order • ₹${finalTotal.toFixed(0)}`}
                   </span>
                 </button>
-
-                <div className="text-center mt-2.5 text-[11px] font-mono text-banhmi-dark/60 flex items-center justify-center space-x-2">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Saved to Supabase with unique tracking ID • 10-day retention</span>
-                </div>
               </div>
             </form>
           </motion.div>

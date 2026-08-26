@@ -1,10 +1,14 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { MenuItem, CartItem, Order, OrderStatus, DeliveryMethod } from '@/types/cafe';
-import { INITIAL_ORDERS, CAFE_INFO } from '@/data/cafeData';
+import { INITIAL_ORDERS, MENU_ITEMS, CAFE_INFO } from '@/data/cafeData';
+import { supabase } from '@/lib/supabase';
 
 interface OrderContextType {
+  menuItems: MenuItem[];
+  loadingMenu: boolean;
+  refreshMenu: () => Promise<void>;
   cart: CartItem[];
   addToCart: (item: MenuItem, quantity?: number, selectedOptions?: any) => void;
   removeFromCart: (cartItemId: string) => void;
@@ -28,7 +32,7 @@ interface OrderContextType {
     paymentMethod?: string,
     razorpayDetails?: any
   ) => Promise<Order>;
-  updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
+  updateOrderStatus: (orderId: string, status: OrderStatus, riderDetails?: { riderName?: string; riderPhone?: string }) => Promise<void>;
   deleteOrder: (orderId: string) => void;
   addDemoOrder: () => void;
   clearAllOrders: () => void;
@@ -46,12 +50,36 @@ function filterOrdersLast10Days(list: Order[]): Order[] {
 }
 
 export function OrderProvider({ children }: { children: React.ReactNode }) {
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(MENU_ITEMS);
+  const [loadingMenu, setLoadingMenu] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>(filterOrdersLast10Days(INITIAL_ORDERS));
   const [activeTrackingOrder, setActiveTrackingOrder] = useState<Order | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [trackingModalOpen, setTrackingModalOpen] = useState(false);
+
+  // Fetch Database-Backed Menu Items
+  const refreshMenu = useCallback(async () => {
+    try {
+      setLoadingMenu(true);
+      const res = await fetch('/api/menu');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.menu) && data.menu.length > 0) {
+        setMenuItems(data.menu);
+      }
+    } catch {
+      // Fallback to initial local items
+      setMenuItems(MENU_ITEMS);
+    } finally {
+      setLoadingMenu(false);
+    }
+  }, []);
+
+  // Fetch initial menu on mount
+  useEffect(() => {
+    refreshMenu();
+  }, [refreshMenu]);
 
   // Load initial orders from API / localStorage on mount
   useEffect(() => {
@@ -89,6 +117,57 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
     initOrders();
   }, []);
+
+  // Real-time Supabase Subscription for active tracking order
+  useEffect(() => {
+    if (!activeTrackingOrder || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      return;
+    }
+
+    const orderIdToTrack = activeTrackingOrder.id || activeTrackingOrder.tokenId;
+    const channel = supabase
+      .channel(`active-order-${orderIdToTrack}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+        },
+        (payload: any) => {
+          const updatedRow = payload.new;
+          if (
+            updatedRow &&
+            (updatedRow.tracking_code === activeTrackingOrder.id ||
+              updatedRow.token_id === activeTrackingOrder.tokenId ||
+              updatedRow.id === activeTrackingOrder.id)
+          ) {
+            setActiveTrackingOrder((prev) => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                status: updatedRow.status,
+                estimatedTime: updatedRow.estimated_time || prev.estimatedTime,
+                paymentStatus: updatedRow.payment_status || prev.paymentStatus,
+              };
+            });
+
+            setOrders((prevList) =>
+              prevList.map((o) =>
+                o.id === activeTrackingOrder.id || o.tokenId === activeTrackingOrder.tokenId
+                  ? { ...o, status: updatedRow.status, estimatedTime: updatedRow.estimated_time || o.estimatedTime }
+                  : o
+              )
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeTrackingOrder]);
 
   // Listen to storage events across tabs
   useEffect(() => {
@@ -181,7 +260,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   ): Promise<Order> => {
     const subtotal = cartSubtotal;
     const deliveryFee = deliveryMethod === 'delivery' ? (subtotal >= CAFE_INFO.freeDeliveryThreshold ? 0 : CAFE_INFO.deliveryFee) : 0;
-    const tax = Number((subtotal * 0.08875).toFixed(2));
+    const tax = Number((subtotal * 0.05).toFixed(2));
     const total = Number((subtotal + deliveryFee + tax + tip).toFixed(2));
 
     try {
@@ -205,7 +284,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const data = await res.json();
       if (data.success && data.order) {
-        const createdOrder: Order = data.order;
+        const createdOrder: Order = {
+          ...data.order,
+          tokenId: data.tokenId || data.order.tokenId,
+          customerId: data.customerId || data.order.customerId,
+        };
         const updated = [createdOrder, ...orders];
         saveOrdersToStorage(updated);
         clearCart();
@@ -218,11 +301,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // offline fallback
     }
 
-    // Fallback order generation with unique ID
+    // Fallback order generation with unique Token ID
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
     const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
-    const trackingId = `BM-${Math.floor(1000 + Math.random() * 9000)}-${randomSuffix}`;
+    const trackingCode = `ZF-${randomDigits}-${randomSuffix}`;
+    const tokenId = `TOK-${randomDigits}-${randomSuffix}`;
+    const customerId = `CUST-${customer.phone.slice(-4) || '9999'}-${randomSuffix}`;
+
     const fallbackOrder: Order = {
-      id: trackingId,
+      id: trackingCode,
+      tokenId: tokenId,
+      trackingCode: trackingCode,
+      customerId: customerId,
       createdAt: new Date().toISOString(),
       status: 'new',
       deliveryMethod,
@@ -235,6 +325,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       total,
       estimatedTime: deliveryMethod === 'delivery' ? '20-30 min' : '10-15 min',
       paymentMethod,
+      paymentStatus: 'completed',
     };
 
     const updated = [fallbackOrder, ...orders];
@@ -247,69 +338,116 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     return fallbackOrder;
   };
 
-  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+  const updateOrderStatus = async (
+    orderId: string,
+    status: OrderStatus,
+    riderDetails?: { riderName?: string; riderPhone?: string }
+  ) => {
     try {
       await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          riderName: riderDetails?.riderName,
+          riderPhone: riderDetails?.riderPhone,
+        }),
       });
     } catch {
       // offline
     }
 
-    const updated = orders.map((o) => (o.id === orderId ? { ...o, status } : o));
+    const updated = orders.map((o) => {
+      if (o.id === orderId || o.tokenId === orderId) {
+        return {
+          ...o,
+          status,
+          ...(riderDetails?.riderName ? { riderName: riderDetails.riderName } : {}),
+          ...(riderDetails?.riderPhone ? { riderPhone: riderDetails.riderPhone } : {}),
+        };
+      }
+      return o;
+    });
     saveOrdersToStorage(updated);
-    if (activeTrackingOrder && activeTrackingOrder.id === orderId) {
-      setActiveTrackingOrder({ ...activeTrackingOrder, status });
+    if (activeTrackingOrder && (activeTrackingOrder.id === orderId || activeTrackingOrder.tokenId === orderId)) {
+      setActiveTrackingOrder({
+        ...activeTrackingOrder,
+        status,
+        ...(riderDetails?.riderName ? { riderName: riderDetails.riderName } : {}),
+        ...(riderDetails?.riderPhone ? { riderPhone: riderDetails.riderPhone } : {}),
+      });
     }
   };
 
-  const deleteOrder = (orderId: string) => {
-    const updated = orders.filter((o) => o.id !== orderId);
+  const deleteOrder = async (orderId: string) => {
+    try {
+      await fetch(`/api/orders?id=${encodeURIComponent(orderId)}`, { method: 'DELETE' });
+    } catch {}
+    const updated = orders.filter((o) => o.id !== orderId && o.tokenId !== orderId);
     saveOrdersToStorage(updated);
   };
 
   const addDemoOrder = () => {
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
     const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const defaultItem = menuItems[0] || {
+      id: 'zafiroo-signature-coffee',
+      name: 'Zafiroo Signature Coffee',
+      category: 'coffee',
+      description: 'Single-origin roast with whipped sea salt cream.',
+      price: '₹220',
+      priceNumber: 220,
+      image: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=1200&auto=format&fit=crop',
+    };
+
     const newDemoOrder: Order = {
-      id: `BM-${Math.floor(1000 + Math.random() * 9000)}-${randomSuffix}`,
+      id: `ZF-${randomDigits}-${randomSuffix}`,
+      tokenId: `TOK-${randomDigits}-${randomSuffix}`,
+      trackingCode: `ZF-${randomDigits}-${randomSuffix}`,
+      customerId: `CUST-5555-${randomSuffix}`,
       createdAt: new Date().toISOString(),
       status: 'new',
       deliveryMethod: Math.random() > 0.4 ? 'delivery' : 'pickup',
       customer: {
-        name: ['Minh T.', 'Sarah K.', 'David R.', 'Elena Z.'][Math.floor(Math.random() * 4)],
-        phone: '+1 (917) 555-' + Math.floor(1000 + Math.random() * 9000),
-        email: 'customer@cloudkitchen.nyc',
-        address: '428 Mercer St, SoHo, NY 10013',
+        name: ['Rohan S.', 'Priya N.', 'Vikram M.', 'Ananya I.'][Math.floor(Math.random() * 4)],
+        phone: '+91 98450 ' + Math.floor(10000 + Math.random() * 90000),
+        email: 'customer@zafiroo.com',
+        address: '100 Feet Rd, Indiranagar, Bengaluru 560038',
       },
       items: [
         {
           id: `item-${Date.now()}-1`,
-          menuItem: INITIAL_ORDERS[0].items[0].menuItem,
+          menuItem: defaultItem,
           quantity: 2,
-          itemTotal: 19.0,
-        }
+          itemTotal: 440,
+        },
       ],
-      subtotal: 19.0,
-      deliveryFee: 2.99,
-      tax: 1.68,
-      tip: 4.00,
-      total: 27.67,
+      subtotal: 440,
+      deliveryFee: 40,
+      tax: 22,
+      tip: 30,
+      total: 532,
       estimatedTime: '20-30 min',
       paymentMethod: 'Online (Razorpay)',
+      paymentStatus: 'completed',
     };
 
     saveOrdersToStorage([newDemoOrder, ...orders]);
   };
 
-  const clearAllOrders = () => {
+  const clearAllOrders = async () => {
+    try {
+      await fetch('/api/orders', { method: 'DELETE' });
+    } catch {}
     saveOrdersToStorage([]);
   };
 
   return (
     <OrderContext.Provider
       value={{
+        menuItems,
+        loadingMenu,
+        refreshMenu,
         cart,
         addToCart,
         removeFromCart,

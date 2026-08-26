@@ -19,6 +19,7 @@ export default function MenuDetailModal({ item, isOpen, onClose }: MenuDetailMod
   const [selectedTemp, setSelectedTemp] = useState<string>('');
   const [selectedSweetness, setSelectedSweetness] = useState<string>('');
   const [selectedPortion, setSelectedPortion] = useState<string>('');
+  const [selectedFlavor, setSelectedFlavor] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
 
@@ -30,6 +31,7 @@ export default function MenuDetailModal({ item, isOpen, onClose }: MenuDetailMod
       temperature: selectedTemp || item.customizationOptions?.temperature?.[0],
       sweetness: selectedSweetness || item.customizationOptions?.sweetness?.[0],
       portion: selectedPortion || item.customizationOptions?.portion?.[0],
+      flavor: selectedFlavor || item.customizationOptions?.flavor?.[0],
     };
     addToCart(item, quantity, options);
     setAdded(true);
@@ -164,7 +166,7 @@ export default function MenuDetailModal({ item, isOpen, onClose }: MenuDetailMod
                       {item.customizationOptions.sweetness && (
                         <div>
                           <label className="text-[10px] font-mono uppercase text-espresso-500 block mb-1">
-                            Sweetness Level
+                            Sweetness / Spice Level
                           </label>
                           <div className="flex flex-wrap gap-1.5">
                             {item.customizationOptions.sweetness.map((s) => (
@@ -179,6 +181,54 @@ export default function MenuDetailModal({ item, isOpen, onClose }: MenuDetailMod
                                 }`}
                               >
                                 {s}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {item.customizationOptions.portion && (
+                        <div>
+                          <label className="text-[10px] font-mono uppercase text-espresso-500 block mb-1">
+                            Portion / Size
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.customizationOptions.portion.map((p) => (
+                              <button
+                                key={p}
+                                type="button"
+                                onClick={() => setSelectedPortion(p)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-all ${
+                                  (selectedPortion || item.customizationOptions?.portion?.[0]) === p
+                                    ? 'bg-espresso-900 text-cream-50 border-espresso-900 font-bold'
+                                    : 'bg-white text-espresso-700 border-cream-300'
+                                }`}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {item.customizationOptions.flavor && (
+                        <div>
+                          <label className="text-[10px] font-mono uppercase text-espresso-500 block mb-1">
+                            Flavor / Selection
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.customizationOptions.flavor.map((f) => (
+                              <button
+                                key={f}
+                                type="button"
+                                onClick={() => setSelectedFlavor(f)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-all ${
+                                  (selectedFlavor || item.customizationOptions?.flavor?.[0]) === f
+                                    ? 'bg-espresso-900 text-cream-50 border-espresso-900 font-bold'
+                                    : 'bg-white text-espresso-700 border-cream-300'
+                                }`}
+                              >
+                                {f}
                               </button>
                             ))}
                           </div>
@@ -238,7 +288,7 @@ export default function MenuDetailModal({ item, isOpen, onClose }: MenuDetailMod
                     ) : (
                       <>
                         <ShoppingBag className="w-4 h-4 text-amberGold-400" />
-                        <span>Add to Order • ${(item.priceNumber * quantity).toFixed(2)}</span>
+                        <span>Add to Order • ₹{(item.priceNumber * quantity).toFixed(0)}</span>
                       </>
                     )}
                   </button>

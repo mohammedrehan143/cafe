@@ -13,9 +13,11 @@ interface SignatureMenuSectionProps {
 }
 
 export default function SignatureMenuSection({ onSelectItem }: SignatureMenuSectionProps) {
-  const { addToCart, cart } = useOrder();
+  const { addToCart, cart, menuItems } = useOrder();
   const [activeCategory, setActiveCategory] = useState<'all' | 'coffee' | 'breakfast' | 'mains' | 'desserts' | 'mocktails'>('all');
   const [addedItemNotice, setAddedItemNotice] = useState<string | null>(null);
+
+  const currentMenu = menuItems && menuItems.length > 0 ? menuItems : MENU_ITEMS;
 
   const categories = [
     { id: 'all', label: 'All Kitchen Creations', icon: Sparkles },
@@ -27,8 +29,8 @@ export default function SignatureMenuSection({ onSelectItem }: SignatureMenuSect
   ];
 
   const filteredItems = activeCategory === 'all'
-    ? MENU_ITEMS
-    : MENU_ITEMS.filter((item) => item.category === activeCategory);
+    ? currentMenu
+    : currentMenu.filter((item) => item.category === activeCategory);
 
   const handleQuickAdd = (e: React.MouseEvent, item: MenuItem) => {
     e.stopPropagation();

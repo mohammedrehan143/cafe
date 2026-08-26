@@ -12,10 +12,10 @@ const config: Config = {
         banhmi: {
           bg: "#FFF8F0",
           card: "#FFF3E3",
-          red: "#E23727",
-          redDark: "#B81B0E",
-          yellow: "#FFB703",
-          gold: "#D49226",
+          red: "#4A2818",
+          redDark: "#2E1509",
+          yellow: "#4A2818",
+          gold: "#D4A373",
           green: "#1E5128",
           dark: "#1C1917",
           brown: "#382922",
@@ -51,11 +51,15 @@ const config: Config = {
         display: ["var(--font-asap)", "Impact", "sans-serif"],
         sans: ["var(--font-poppins)", "Inter", "sans-serif"],
         mono: ["var(--font-space-mono)", "monospace"],
+        calligraphy: ["var(--font-calligraphy)", "Dancing Script", "cursive"],
+        serif: ["var(--font-serif)", "Playfair Display", "Georgia", "serif"],
       },
       animation: {
         "spin-slow": "spin 25s linear infinite",
         "float-gentle": "floatGentle 4s ease-in-out infinite",
         "pulse-subtle": "pulseSubtle 3s ease-in-out infinite",
+        "marquee": "marquee 32s linear infinite",
+        "marquee-slow": "marquee 45s linear infinite",
       },
       keyframes: {
         floatGentle: {
@@ -65,6 +69,10 @@ const config: Config = {
         pulseSubtle: {
           "0%, 100%": { opacity: "1", transform: "scale(1)" },
           "50%": { opacity: "0.85", transform: "scale(1.03)" },
+        },
+        marquee: {
+          "0%": { transform: "translateX(0%)" },
+          "100%": { transform: "translateX(-50%)" },
         },
       },
       boxShadow: {

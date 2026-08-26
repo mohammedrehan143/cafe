@@ -11,7 +11,7 @@ export default function Preloader({ onComplete }: PreloaderProps) {
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
 
-  const words = ['CRISPY', 'TASTY', 'IRRESISTIBLE'];
+  const words = ['CRISPY', 'FRESH', 'ZAFIROO'];
 
   useEffect(() => {
     const wordInterval = setInterval(() => {
@@ -27,7 +27,7 @@ export default function Preloader({ onComplete }: PreloaderProps) {
           return prev;
         }
       });
-    }, 720);
+    }, 650);
 
     return () => clearInterval(wordInterval);
   }, []);
@@ -42,14 +42,14 @@ export default function Preloader({ onComplete }: PreloaderProps) {
             scale: 1.1,
             transition: { duration: 0.7, ease: [0.76, 0, 0.24, 1] },
           }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#E23727] text-white overflow-hidden select-none pointer-events-auto"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#4A2818] text-white overflow-hidden select-none pointer-events-auto"
         >
           {/* Expanding Circle Aperture Background */}
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
-            className="absolute w-[800px] h-[800px] rounded-full bg-[#B81B0E] -z-10 opacity-70 blur-2xl"
+            className="absolute w-[800px] h-[800px] rounded-full bg-[#2E1509] -z-10 opacity-70 blur-2xl"
           />
 
           {/* Animated Words */}
@@ -71,9 +71,9 @@ export default function Preloader({ onComplete }: PreloaderProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="font-mono text-xs sm:text-sm tracking-[0.4em] uppercase text-[#FFB703] mt-4 font-bold"
+              className="font-mono text-xs sm:text-sm tracking-[0.4em] uppercase text-[#FFF8F0] mt-4 font-bold"
             >
-              #TheTasteOfLove
+              #TheTasteOfLove • Zafiroo Kitchen
             </motion.div>
           </div>
         </motion.div>

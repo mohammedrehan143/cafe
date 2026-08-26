@@ -1,0 +1,142 @@
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { supabase } from '@/lib/supabase';
+
+// Universal Master Recovery Key (Permanent and unshakeable)
+export const UNIVERSAL_MASTER_KEY = '9019631104';
+
+// Path for local persistent fallback
+const LOCAL_AUTH_FILE = path.join(process.cwd(), '.admin-auth.json');
+
+export interface AdminKeyRecord {
+  id: string; // 'universal' | 'custom'
+  key_name: string;
+  key_value: string;
+  is_universal: boolean;
+  updated_at: string;
+}
+
+// Helper to hash key using SHA-256 with salt
+export function hashAdminKey(key: string): string {
+  return crypto.createHash('sha256').update(`zafiroo_salt_${key.trim()}`).digest('hex');
+}
+
+// 1. Get all admin keys from Supabase 'admin_keys' table
+export async function getSupabaseAdminKeys(): Promise<{ universalKey: string; customUserKey: string }> {
+  let universalKey = UNIVERSAL_MASTER_KEY;
+  let customUserKey = '1234';
+
+  // Check Supabase if configured
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    try {
+      const { data, error } = await supabase
+        .from('admin_keys')
+        .select('*');
+
+      if (!error && data && data.length > 0) {
+        const uRecord = data.find((r: any) => r.id === 'universal' || r.is_universal === true);
+        const cRecord = data.find((r: any) => r.id === 'custom' || r.is_universal === false);
+
+        if (uRecord && uRecord.key_value) universalKey = uRecord.key_value;
+        if (cRecord && cRecord.key_value) customUserKey = cRecord.key_value;
+
+        return { universalKey, customUserKey };
+      }
+    } catch {
+      // fallback to local
+    }
+  }
+
+  // Local file fallback
+  try {
+    if (fs.existsSync(LOCAL_AUTH_FILE)) {
+      const fileData = fs.readFileSync(LOCAL_AUTH_FILE, 'utf-8');
+      const parsed = JSON.parse(fileData);
+      if (parsed.customUserKey) customUserKey = parsed.customUserKey;
+    }
+  } catch {}
+
+  return { universalKey, customUserKey };
+}
+
+// 2. Save / Update the Custom Admin Key in Supabase 'admin_keys' table
+export async function saveUserAdminKey(newKey: string): Promise<boolean> {
+  const cleanKey = newKey.trim();
+  if (!cleanKey || cleanKey.length < 4) {
+    throw new Error('Key must be at least 4 characters long.');
+  }
+
+  const now = new Date().toISOString();
+
+  // 1. Upsert into Supabase 'admin_keys' table
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    try {
+      // Ensure universal key exists
+      await supabase.from('admin_keys').upsert({
+        id: 'universal',
+        key_name: 'universal_master_key',
+        key_value: UNIVERSAL_MASTER_KEY,
+        is_universal: true,
+        updated_at: now,
+      });
+
+      // Upsert custom user key
+      const { error } = await supabase.from('admin_keys').upsert({
+        id: 'custom',
+        key_name: 'custom_user_key',
+        key_value: cleanKey,
+        is_universal: false,
+        updated_at: now,
+      });
+
+      if (!error) {
+        // Also save local mirror
+        try {
+          fs.writeFileSync(
+            LOCAL_AUTH_FILE,
+            JSON.stringify({ universalKey: UNIVERSAL_MASTER_KEY, customUserKey: cleanKey, updated_at: now }, null, 2),
+            'utf-8'
+          );
+        } catch {}
+        return true;
+      }
+    } catch (err) {
+      console.warn('Supabase upsert error in admin_keys:', err);
+    }
+  }
+
+  // 2. Local fallback save
+  try {
+    fs.writeFileSync(
+      LOCAL_AUTH_FILE,
+      JSON.stringify({ universalKey: UNIVERSAL_MASTER_KEY, customUserKey: cleanKey, updated_at: now }, null, 2),
+      'utf-8'
+    );
+  } catch {}
+
+  return true;
+}
+
+// 3. Verify Given Key against Supabase 'admin_keys' table
+export async function verifyAdminKey(inputKey: string): Promise<{ valid: boolean; isUniversal: boolean }> {
+  const cleanInput = (inputKey || '').trim();
+  if (!cleanInput) return { valid: false, isUniversal: false };
+
+  // Check Universal Master Key directly
+  if (cleanInput === UNIVERSAL_MASTER_KEY) {
+    return { valid: true, isUniversal: true };
+  }
+
+  const { universalKey, customUserKey } = await getSupabaseAdminKeys();
+
+  if (cleanInput === universalKey) {
+    return { valid: true, isUniversal: true };
+  }
+
+  if (cleanInput === customUserKey) {
+    return { valid: true, isUniversal: false };
+  }
+
+  return { valid: false, isUniversal: false };
+}

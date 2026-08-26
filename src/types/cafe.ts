@@ -1,7 +1,7 @@
 export interface MenuItem {
   id: string;
   name: string;
-  category: 'coffee' | 'breakfast' | 'mains' | 'desserts' | 'mocktails';
+  category: 'coffee' | 'shakes' | 'fries' | 'sandwiches' | 'pizza' | 'desserts' | 'drinks' | string;
   description: string;
   detailedDescription?: string;
   price: string;
@@ -20,7 +20,10 @@ export interface MenuItem {
     temperature?: string[];
     sweetness?: string[];
     portion?: string[];
+    flavor?: string[];
   };
+  isAvailable?: boolean;
+  displayOrder?: number;
 }
 
 export interface CartItem {
@@ -32,6 +35,7 @@ export interface CartItem {
     temperature?: string;
     sweetness?: string;
     portion?: string;
+    flavor?: string;
     specialInstructions?: string;
   };
   itemTotal: number;
@@ -40,8 +44,24 @@ export interface CartItem {
 export type OrderStatus = 'new' | 'preparing' | 'ready' | 'delivering' | 'completed' | 'cancelled';
 export type DeliveryMethod = 'delivery' | 'pickup';
 
+export interface Customer {
+  id: string; // e.g. CUST-9886-A4F
+  phone: string;
+  name: string;
+  email?: string;
+  address?: string;
+  unit?: string;
+  defaultInstructions?: string;
+  orderCount?: number;
+  totalSpent?: number;
+  createdAt?: string;
+}
+
 export interface Order {
   id: string;
+  tokenId?: string; // Order Token ID for tracking (e.g. TOK-9421-XK7 / ZF-9421-XK7)
+  trackingCode?: string;
+  customerId?: string; // Customer ID reference
   createdAt: string;
   status: OrderStatus;
   deliveryMethod: DeliveryMethod;
@@ -59,8 +79,13 @@ export interface Order {
   tax: number;
   tip: number;
   total: number;
-  estimatedTime: string; // e.g. "25-35 min"
+  estimatedTime: string; // e.g. "20-30 min"
   paymentMethod: string;
+  paymentStatus?: 'pending' | 'completed' | 'failed' | 'refunded';
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  riderName?: string;
+  riderPhone?: string;
 }
 
 export interface SignatureDish {

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight, Bike, Store, Sparkles, ShieldCheck } from 'lucide-react';
 import { useOrder } from '@/context/OrderContext';
@@ -110,13 +111,13 @@ export default function CartDrawer() {
                     {freeDeliveryRemaining > 0 ? (
                       <div>
                         <span>Add </span>
-                        <strong className="text-amberGold-600 font-bold">${freeDeliveryRemaining.toFixed(2)}</strong>
-                        <span> more for free thermal packaging & delivery!</span>
+                        <strong className="text-[#4A2818] font-bold">₹{freeDeliveryRemaining.toFixed(0)}</strong>
+                        <span> more for free thermal packaging &amp; delivery!</span>
                       </div>
                     ) : (
                       <span className="text-emerald-700 font-semibold flex items-center space-x-1">
-                        <Sparkles className="w-3.5 h-3.5 text-amberGold-500 inline mr-1" />
-                        You unlocked free studio delivery!
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-600 inline mr-1" />
+                        You unlocked free delivery!
                       </span>
                     )}
                   </div>
@@ -133,15 +134,16 @@ export default function CartDrawer() {
                     <div>
                       <h4 className="font-serif text-xl text-espresso-950">Your order is empty</h4>
                       <p className="text-xs text-espresso-600 mt-1 max-w-xs">
-                        Explore our single-origin roasts, 72-hour pastries, and culinary plates.
+                        Explore our specialty coffees, thick shakes, loaded cheesy fries &amp; molten desserts.
                       </p>
                     </div>
-                    <button
+                    <Link
+                      href="/menu"
                       onClick={() => setCartDrawerOpen(false)}
-                      className="px-6 py-2.5 rounded-full bg-espresso-900 text-cream-50 text-xs font-mono uppercase tracking-wider hover:bg-espresso-800"
+                      className="px-6 py-2.5 rounded-full bg-[#4A2818] hover:bg-[#2E1509] text-white text-xs font-mono uppercase tracking-wider font-bold transition-all shadow-md active:scale-95 inline-block"
                     >
-                      Browse Studio Menu
-                    </button>
+                      Browse Full Menu
+                    </Link>
                   </div>
                 ) : (
                   cart.map((item) => (
@@ -164,7 +166,7 @@ export default function CartDrawer() {
                             {item.menuItem.name}
                           </h4>
                           <span className="font-serif text-sm font-bold text-espresso-950 ml-2">
-                            ${item.itemTotal.toFixed(2)}
+                            ₹{item.itemTotal.toFixed(0)}
                           </span>
                         </div>
 
@@ -218,7 +220,7 @@ export default function CartDrawer() {
                   <div className="space-y-1.5 font-mono text-xs text-espresso-700">
                     <div className="flex justify-between">
                       <span className="text-espresso-500">Subtotal</span>
-                      <span>${cartSubtotal.toFixed(2)}</span>
+                      <span>₹{cartSubtotal.toFixed(0)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-espresso-500">
@@ -228,26 +230,26 @@ export default function CartDrawer() {
                         {effectiveDeliveryFee === 0 ? (
                           <span className="text-emerald-700 font-bold">FREE</span>
                         ) : (
-                          `$${effectiveDeliveryFee.toFixed(2)}`
+                          `₹${effectiveDeliveryFee.toFixed(0)}`
                         )}
                       </span>
                     </div>
                     <div className="flex justify-between pt-2 border-t border-cream-300 text-sm font-bold text-espresso-950 font-serif">
                       <span>Estimated Total</span>
-                      <span>${estimatedTotal.toFixed(2)}</span>
+                      <span>₹{estimatedTotal.toFixed(0)}</span>
                     </div>
                   </div>
 
                   <button
                     onClick={handleProceedToCheckout}
-                    className="w-full py-4 rounded-full bg-espresso-900 hover:bg-espresso-800 text-cream-50 font-mono text-xs uppercase tracking-widest font-semibold transition-all shadow-warm-md flex items-center justify-center space-x-2"
+                    className="w-full py-4 rounded-full bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs uppercase tracking-widest font-semibold transition-all shadow-warm-md flex items-center justify-center space-x-2"
                   >
                     <span>Proceed to Checkout</span>
-                    <ArrowRight className="w-4 h-4 text-amberGold-400" />
+                    <ArrowRight className="w-4 h-4 text-white" />
                   </button>
 
                   <div className="flex items-center justify-center space-x-2 text-[10px] font-mono text-espresso-500">
-                    <ShieldCheck className="w-3.5 h-3.5 text-amberGold-500" />
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Instant kitchen ticket & live order tracking</span>
                   </div>
                 </div>

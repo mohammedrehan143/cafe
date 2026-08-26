@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
-import Image from 'next/image';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -11,34 +10,62 @@ import {
   Bike,
   Store,
   Sparkles,
-  MapPin,
-  Phone,
-  ArrowRight,
   Copy,
   Check,
   ExternalLink,
   Package,
+  User,
+  Radio,
+  Phone,
 } from 'lucide-react';
 import { useOrder } from '@/context/OrderContext';
+import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
 import Link from 'next/link';
 
 export default function OrderTrackingModal() {
   const {
     activeTrackingOrder,
+    setActiveTrackingOrder,
     trackingModalOpen,
     setTrackingModalOpen,
     orders,
   } = useOrder();
 
   const [copied, setCopied] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
 
   const currentOrder = activeTrackingOrder || orders[0];
 
+  useEffect(() => {
+    if (!trackingModalOpen || !currentOrder) return;
+    const token = currentOrder.tokenId || currentOrder.id;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/orders/${encodeURIComponent(token)}`);
+        const data = await res.json();
+        if (data.success && data.order) {
+          if (
+            data.order.status !== currentOrder.status ||
+            data.order.riderName !== currentOrder.riderName ||
+            data.order.riderPhone !== currentOrder.riderPhone
+          ) {
+            setActiveTrackingOrder(data.order);
+          }
+        }
+      } catch {}
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [trackingModalOpen, currentOrder?.id, currentOrder?.status, currentOrder?.riderName, currentOrder?.riderPhone, setActiveTrackingOrder]);
+
   if (!currentOrder) return null;
 
+  const trackingCodeOrToken = currentOrder.tokenId || currentOrder.trackingCode || currentOrder.id;
+
   const trackingUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/track?id=${encodeURIComponent(currentOrder.id)}`
-    : `https://banhmivietnam.xyz/track?id=${encodeURIComponent(currentOrder.id)}`;
+    ? `${window.location.origin}/track?id=${encodeURIComponent(trackingCodeOrToken)}`
+    : `https://zafiroo.com/track?id=${encodeURIComponent(trackingCodeOrToken)}`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(trackingUrl);
@@ -46,17 +73,25 @@ export default function OrderTrackingModal() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyToken = () => {
+    navigator.clipboard.writeText(trackingCodeOrToken);
+    setCopiedToken(true);
+    setTimeout(() => setCopiedToken(false), 2000);
+  };
+
   const steps = [
-    { key: 'new', label: 'Order Received', desc: 'Ticket acknowledged by Saigon kitchen', icon: CheckCircle2 },
-    { key: 'preparing', label: 'Chef Preparing', desc: 'Baking rice-flour crust & lemongrass grilling', icon: ChefHat },
-    { key: 'ready', label: 'Thermal Packaged', desc: 'Crispy ventilated seal locked', icon: Package },
+    { key: 'new', label: 'Order Received', desc: 'Ticket registered in live kitchen database', icon: CheckCircle2 },
+    { key: 'preparing', label: 'Chef Preparing', desc: 'Brewing single-origin coffees & cooking artisan dishes', icon: ChefHat },
+    { key: 'ready', label: 'Thermal Packaged', desc: 'Ventilated thermal seal locked', icon: Package },
     {
       key: 'delivering',
       label: currentOrder.deliveryMethod === 'delivery' ? 'Out for Delivery' : 'Ready at Studio Counter',
-      desc: currentOrder.deliveryMethod === 'delivery' ? 'Courier en route with thermal bag' : 'Waiting at 428 Mercer St, SoHo',
+      desc: currentOrder.deliveryMethod === 'delivery'
+        ? (currentOrder.riderName ? `Courier ${currentOrder.riderName} (${currentOrder.riderPhone || ''}) is en route` : 'Courier dispatched with insulated thermal bag')
+        : 'Waiting at 100 Feet Rd Studio, Indiranagar',
       icon: currentOrder.deliveryMethod === 'delivery' ? Bike : Store,
     },
-    { key: 'completed', label: 'Fulfilled & Enjoyed', desc: 'Chuc ngon mieng!', icon: Sparkles },
+    { key: 'completed', label: 'Fulfilled & Enjoyed', desc: 'Enjoy your fresh artisan meal!', icon: Sparkles },
   ];
 
   const getStepIndex = (status: string) => {
@@ -97,8 +132,8 @@ export default function OrderTrackingModal() {
             <div className="px-6 sm:px-8 py-5 border-b border-cream-300 bg-banhmi-card/90 flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
               <div>
                 <span className="text-[10px] font-mono tracking-[0.25em] uppercase text-emerald-700 font-bold flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block mr-1" />
-                  Live Order Dispatched
+                  <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse inline mr-1" />
+                  Live Realtime Dispatch
                 </span>
                 <h3 className="font-display text-3xl uppercase font-black text-banhmi-dark mt-0.5">
                   Order <span className="text-banhmi-red">{currentOrder.id}</span>
@@ -114,56 +149,119 @@ export default function OrderTrackingModal() {
             </div>
 
             <div className="p-6 sm:p-8 space-y-6">
-              {/* Unique Tracking ID Box with 1-Click Copy */}
-              <div className="p-4 rounded-2xl bg-white border border-banhmi-red/30 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div>
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-banhmi-dark/60 block">
-                    Your Unique Tracking ID (Track Anywhere)
-                  </span>
-                  <div className="font-mono text-lg font-black text-banhmi-red tracking-wider">
-                    {currentOrder.id}
+              {/* Order Token ID & Customer ID Information Box */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl bg-white border border-banhmi-red/30 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-banhmi-dark/60 block font-bold">
+                      Order Token ID (Keep For Tracking)
+                    </span>
+                    <div className="font-mono text-lg font-black text-banhmi-red tracking-wider mt-0.5">
+                      {trackingCodeOrToken}
+                    </div>
                   </div>
+                  <button
+                    onClick={handleCopyToken}
+                    className="mt-2.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-xs font-mono font-bold text-banhmi-red flex items-center justify-center space-x-1.5 transition-colors self-start"
+                  >
+                    {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedToken ? 'Token Copied!' : 'Copy Token ID'}</span>
+                  </button>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={handleCopyLink}
-                    className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-banhmi-dark flex items-center justify-center space-x-1.5 transition-colors"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-banhmi-red" />}
-                    <span>{copied ? 'Link Copied!' : 'Copy Link'}</span>
-                  </button>
-
-                  <Link
-                    href={`/track?id=${encodeURIComponent(currentOrder.id)}`}
-                    onClick={() => setTrackingModalOpen(false)}
-                    className="px-4 py-2 rounded-xl bg-banhmi-dark hover:bg-banhmi-red text-white text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-colors"
-                  >
-                    <span>Full Tracker</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </Link>
+                <div className="p-4 rounded-2xl bg-white border border-cream-300 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-banhmi-dark/60 block font-bold">
+                      Registered Customer ID
+                    </span>
+                    <div className="font-mono text-sm font-bold text-banhmi-dark tracking-wide mt-1 flex items-center space-x-1.5">
+                      <User className="w-3.5 h-3.5 text-banhmi-gold" />
+                      <span>{currentOrder.customerId || 'CUST-REGISTERED'}</span>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <button
+                      onClick={handleCopyLink}
+                      className="px-3 py-1.5 rounded-lg bg-cream-100 hover:bg-cream-200 border border-cream-300 text-xs font-mono font-bold text-banhmi-dark flex items-center space-x-1.5 transition-colors"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-banhmi-red" />}
+                      <span>{copied ? 'Link Copied!' : 'Copy Link'}</span>
+                    </button>
+                    <Link
+                      href={`/track?id=${encodeURIComponent(trackingCodeOrToken)}`}
+                      onClick={() => setTrackingModalOpen(false)}
+                      className="px-3 py-1.5 rounded-lg bg-banhmi-dark hover:bg-banhmi-red text-white text-xs font-mono font-bold flex items-center space-x-1 transition-colors"
+                    >
+                      <span>Full Tracker</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </Link>
+                  </div>
                 </div>
               </div>
 
               {/* Estimated Arrival Banner */}
               <div className="p-5 rounded-2xl bg-banhmi-dark text-white flex items-center justify-between shadow-warm-md">
                 <div>
-                  <span className="text-xs font-mono uppercase text-[#FFB703] block tracking-wider font-bold">
+                  <span className="text-xs font-mono uppercase text-[#FFF8F0] block tracking-wider font-bold">
                     {currentOrder.deliveryMethod === 'delivery' ? 'Estimated Courier Arrival' : 'Estimated Pickup Ready'}
                   </span>
                   <h4 className="font-display text-4xl uppercase font-black mt-0.5 text-white">
                     {currentOrder.estimatedTime}
                   </h4>
                 </div>
-                <div className="p-3 rounded-2xl bg-white/10 text-[#FFB703]">
+                <div className="p-3 rounded-2xl bg-white/10 text-[#FFF8F0]">
                   <Clock className="w-7 h-7 animate-pulse" />
                 </div>
               </div>
 
+              {/* Highlighted Assigned Delivery Agent Card (When Out for Delivery) */}
+              {(currentOrder.riderName || currentOrder.status === 'delivering') && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-50 via-orange-50/50 to-rose-50 border-2 border-amber-400/80 text-[#1C1917] shadow-md space-y-3 ring-2 ring-amber-200/50">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-[#4A2818] font-black">
+                        Courier On The Way
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#4A2818] text-white text-[9px] font-mono font-bold uppercase shadow-xs">
+                      Out for Delivery
+                    </span>
+                  </div>
+
+                  <div className="bg-white/95 rounded-xl p-3.5 border border-amber-200/70 shadow-xs flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-display text-lg uppercase font-black text-[#1C1917]">
+                        {currentOrder.riderName || 'Assigned Courier Rider'}
+                      </div>
+                      <div className="font-mono text-xs text-[#4A2818] font-bold flex items-center space-x-1 mt-0.5">
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{currentOrder.riderPhone || '+91 90196 31104'}</span>
+                      </div>
+                    </div>
+
+                    <a
+                      href={`tel:${(currentOrder.riderPhone || '9019631104').replace(/[^0-9+]/g, '')}`}
+                      className="px-4 py-2 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase flex items-center space-x-1.5 transition-all shadow-sm active:scale-95 flex-shrink-0"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Call</span>
+                    </a>
+                  </div>
+
+                  <p className="text-[11px] text-[#4A2818]/80 font-sans leading-tight">
+                    🛵 Courier is carrying your food in an insulated thermal pack.
+                  </p>
+                </div>
+              )}
+
               {/* Progress Timeline */}
               <div className="space-y-4 pt-1">
                 <span className="font-mono text-xs uppercase tracking-widest text-banhmi-red font-bold block">
-                  Kitchen Progress Status
+                  Kitchen Progress Status (Realtime)
                 </span>
 
                 <div className="space-y-4">
@@ -204,8 +302,8 @@ export default function OrderTrackingModal() {
                               {step.label}
                             </h5>
                             {isCurrent && (
-                              <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-rose-100 text-banhmi-red font-bold">
-                                Active Step
+                              <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-rose-100 text-banhmi-red font-bold animate-pulse">
+                                Active Stage
                               </span>
                             )}
                           </div>
@@ -229,24 +327,44 @@ export default function OrderTrackingModal() {
                     <span>
                       {item.quantity}x {item.menuItem.name}
                     </span>
-                    <span className="font-bold">${item.itemTotal.toFixed(2)}</span>
+                    <span className="font-bold">₹{item.itemTotal.toFixed(0)}</span>
                   </div>
                 ))}
                 <div className="pt-2 border-t border-cream-200 flex justify-between font-display text-lg font-black text-banhmi-dark uppercase">
                   <span>Total Amount</span>
-                  <span className="text-banhmi-red">${currentOrder.total.toFixed(2)}</span>
+                  <span className="text-banhmi-red">₹{currentOrder.total.toFixed(0)}</span>
                 </div>
               </div>
+
+              {/* 1-Click WhatsApp Live Location Button */}
+              {currentOrder.deliveryMethod === 'delivery' && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    shareLiveLocationOnWhatsApp({
+                      orderId: trackingCodeOrToken,
+                      customerName: currentOrder.customer?.name,
+                      address: currentOrder.customer?.address,
+                      customNote: currentOrder.customer?.deliveryInstructions,
+                    })
+                  }
+                  className="w-full py-3 px-4 rounded-2xl bg-[#25D366] hover:bg-[#1EBE5D] text-white font-display text-xs uppercase tracking-wider font-bold shadow-md flex items-center justify-center space-x-2 transition-all active:scale-95"
+                >
+                  <span className="text-base">📍</span>
+                  <span>Share Live GPS Location via WhatsApp</span>
+                </button>
+              )}
 
               {/* Bottom Actions */}
               <div className="pt-2 flex items-center justify-between gap-4 border-t border-cream-300">
                 <Link
                   href="/admin"
                   onClick={() => setTrackingModalOpen(false)}
-                  className="text-xs font-mono text-banhmi-red hover:underline font-bold flex items-center space-x-1"
+                  title="Kitchen Staff KDS"
+                  aria-label="Kitchen Staff KDS"
+                  className="p-2 rounded-full hover:bg-cream-200 text-[#4A2818] transition-colors flex items-center justify-center border border-black/10"
                 >
-                  <ChefHat className="w-3.5 h-3.5" />
-                  <span>Kitchen Staff KDS</span>
+                  <ChefHat className="w-4 h-4" />
                 </Link>
 
                 <button

@@ -2,13 +2,10 @@
 
 import React, { useState } from 'react';
 import Preloader from '@/components/Preloader';
-import ThreeBanhMiHero from '@/components/ThreeBanhMiHero';
-import EvolutionSection from '@/components/EvolutionSection';
-import AnatomySection from '@/components/AnatomySection';
-import FillingsSection from '@/components/FillingsSection';
+import ZafirooHero from '@/components/ZafirooHero';
 import BestPicksSection from '@/components/BestPicksSection';
-import StreetIconSection from '@/components/StreetIconSection';
-import BanhMiFooter from '@/components/BanhMiFooter';
+import TestimonialsSection from '@/components/TestimonialsSection';
+import ZafirooFooter from '@/components/ZafirooFooter';
 import CartDrawer from '@/components/CartDrawer';
 import CheckoutModal from '@/components/CheckoutModal';
 import OrderTrackingModal from '@/components/OrderTrackingModal';
@@ -27,30 +24,21 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-[#FFF8F0] text-[#1C1917] relative selection:bg-[#E23727] selection:text-white">
-      {/* 1. Opening Preloader Animation (Crispy -> Tasty -> Irresistible) */}
+    <main className="min-h-screen bg-[#FFF8F0] text-[#1C1917] relative selection:bg-[#4A2818] selection:text-white">
+      {/* 1. Opening Preloader Animation */}
       <Preloader />
 
-      {/* 2. Hero Section with 3D Floating Bánh Mì & Kinetic Typography */}
-      <ThreeBanhMiHero />
+      {/* 2. Zafiroo Hero Section with Cinematic Background Video */}
+      <ZafirooHero />
 
-      {/* 3. The Evolution Timeline & Sticky Milestone Cards */}
-      <EvolutionSection />
-
-      {/* 4. Interactive 3D Anatomy of Bánh Mì & Exploded Ingredients */}
-      <AnatomySection />
-
-      {/* 5. Kinetic 3-Row Fillings & Carousel Slider */}
-      <FillingsSection />
-
-      {/* 6. Best Picks Curated Section (With Button to Full Menu Page /menu) */}
+      {/* 3. Zafiroo Best Picks Curated Spotlight (Add to Cart / Customizer) */}
       <BestPicksSection onSelectItem={handleSelectMenuItem} />
 
-      {/* 7. Street Icon Culture & Newspaper Typography */}
-      <StreetIconSection />
+      {/* 4. Testimonials & Social Acclaim */}
+      <TestimonialsSection />
 
-      {/* 8. Bánh Mì Editorial Footer & Split Graphics */}
-      <BanhMiFooter />
+      {/* 5. Zafiroo Gourmet Cafe Footer */}
+      <ZafirooFooter />
 
       {/* Interactive Cart, Checkout, Live Tracker, and Customizer Modals */}
       <CartDrawer />

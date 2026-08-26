@@ -21,21 +21,35 @@ export async function GET(
     const lookupId = sanitizeString(decodeURIComponent(id).trim().toUpperCase(), 40);
 
     if (!lookupId) {
-      return NextResponse.json({ success: false, error: 'Tracking ID is required' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Tracking ID or Token is required' }, { status: 400 });
     }
 
-    // 1. Try Supabase lookup
+    // 1. Try Supabase lookup (matches token_id, tracking_code, id, or phone)
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,customer_phone.ilike.%${lookupId}%`)
+        .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%,customer_phone.ilike.%${lookupId}%`)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!error && data) {
+        let resolvedRiderName = data.rider_name;
+        let resolvedRiderPhone = data.rider_phone;
+
+        if (!resolvedRiderName && data.customer_instructions) {
+          const match = data.customer_instructions.match(/\[RIDER:\s*(.*?)\s*\|\s*(.*?)\s*\]/);
+          if (match) {
+            resolvedRiderName = match[1];
+            resolvedRiderPhone = match[2];
+          }
+        }
+
         const order: Order = {
-          id: data.tracking_code || data.id,
+          id: data.tracking_code || data.token_id || data.id,
+          tokenId: data.token_id || data.tracking_code || data.id,
+          trackingCode: data.tracking_code,
+          customerId: data.customer_id,
           createdAt: data.created_at,
           status: data.status as any,
           deliveryMethod: data.delivery_method as any,
@@ -55,6 +69,11 @@ export async function GET(
           total: Number(data.total),
           estimatedTime: data.estimated_time,
           paymentMethod: data.payment_method,
+          paymentStatus: data.payment_status as any,
+          razorpayOrderId: data.razorpay_order_id,
+          razorpayPaymentId: data.razorpay_payment_id,
+          riderName: resolvedRiderName,
+          riderPhone: resolvedRiderPhone,
         };
 
         return NextResponse.json({ success: true, order });
@@ -65,6 +84,7 @@ export async function GET(
     const matched = INITIAL_ORDERS.find(
       (o) =>
         o.id.toUpperCase().includes(lookupId) ||
+        (o.tokenId && o.tokenId.toUpperCase().includes(lookupId)) ||
         o.customer.phone.includes(lookupId) ||
         o.customer.name.toUpperCase().includes(lookupId)
     );
@@ -92,7 +112,7 @@ export async function PATCH(
     const { id } = await params;
     const lookupId = sanitizeString(decodeURIComponent(id).trim(), 40);
     const body = await req.json();
-    const { status } = body;
+    const { status, riderName, riderPhone } = body;
 
     const validStatuses: OrderStatus[] = ['new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled'];
     if (!validStatuses.includes(status)) {
@@ -100,13 +120,41 @@ export async function PATCH(
     }
 
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      await supabase
-        .from('orders')
-        .update({ status })
-        .or(`id.eq.${lookupId},tracking_code.eq.${lookupId}`);
+      try {
+        const updatePayload: any = { status, updated_at: new Date().toISOString() };
+        if (riderName) updatePayload.rider_name = sanitizeString(riderName, 60);
+        if (riderPhone) updatePayload.rider_phone = sanitizeString(riderPhone, 30);
+
+        const { error } = await supabase
+          .from('orders')
+          .update(updatePayload)
+          .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`);
+
+        if (error) {
+          // If rider_name column does not exist in schema, fallback to updating status and storing rider in customer_instructions
+          const fallbackPayload: any = { status, updated_at: new Date().toISOString() };
+          if (riderName && riderPhone) {
+            const { data: currentData } = await supabase
+              .from('orders')
+              .select('customer_instructions')
+              .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`)
+              .maybeSingle();
+
+            const baseNotes = (currentData?.customer_instructions || '').replace(/\[RIDER:.*?\]/g, '').trim();
+            fallbackPayload.customer_instructions = `${baseNotes} [RIDER: ${sanitizeString(riderName, 60)} | ${sanitizeString(riderPhone, 30)}]`.trim();
+          }
+
+          await supabase
+            .from('orders')
+            .update(fallbackPayload)
+            .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`);
+        }
+      } catch (err: any) {
+        console.error('Supabase update failed:', err);
+      }
     }
 
-    return NextResponse.json({ success: true, status });
+    return NextResponse.json({ success: true, status, riderName, riderPhone });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
