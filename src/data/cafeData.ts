@@ -9,7 +9,7 @@ export const CAFE_INFO = {
   address: "Zafiroo Culinary Studio, 100 Feet Road, Indiranagar, Bengaluru, Karnataka 560038, India",
   googleMapsUrl: "https://maps.google.com/?q=Indiranagar+Bengaluru+India",
   phone: "+91 98860 12345",
-  whatsappPhone: "919019631104",
+  whatsappPhone: process.env.NEXT_PUBLIC_WHATSAPP_PHONE || "919886012345",
   email: "orders@zafiroo.com",
   instagram: "@zafiroo.kitchen",
   deliveryRadius: "Superfast Delivery across Bengaluru, Mumbai & Delhi NCR",

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
   const startTime = Date.now();
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const isConfigured = Boolean(supabaseUrl && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !supabaseUrl.includes('demo-cloud-kitchen'));
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const isConfigured = isSupabaseConfigured;
 
   const report: Record<string, any> = {
     status: 'online',
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   if (!isConfigured) {
     report.status = 'local_fallback';
     report.message = 'Supabase environment variables in .env.local have default placeholder values. The app is running smoothly in local fast-fallback mode.';
-    report.instructions = 'To connect to your live Supabase database, paste your real NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY into .env.local and run supabase_schema.sql in the Supabase SQL editor.';
+    report.instructions = 'To connect to your live Supabase database, paste your real SUPABASE_URL and SUPABASE_ANON_KEY into .env.local and run supabase_schema.sql in the Supabase SQL editor.';
     report.latencyMs = Date.now() - startTime;
     return NextResponse.json(report);
   }

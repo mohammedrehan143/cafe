@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { Order } from '@/types/cafe';
 import { INITIAL_ORDERS } from '@/data/cafeData';
 import { checkRateLimit, validateCustomer, validateOrderAmounts, sanitizeString } from '@/lib/security';
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     localOrdersCache = purgeOrdersOlderThan10Days(localOrdersCache);
 
     // Fetch from Supabase if configured
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       const tenDaysAgoISO = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
 
       const { data, error } = await supabase
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
     let customerId = `CUST-${phoneSuffix}-${randomChars}`;
 
     // 1. Manage Customer in Supabase if connected
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       try {
         const { data: existingCustomer } = await supabase
           .from('customers')
@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
     };
 
     // 2. Insert Order into Supabase
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       try {
         await supabase.from('orders').insert({
           id: trackingCode,
@@ -260,7 +260,7 @@ export async function DELETE(req: NextRequest) {
       // Delete single order
       localOrdersCache = localOrdersCache.filter((o) => o.id !== orderId);
 
-      if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      if (isSupabaseConfigured) {
         try {
           await supabase.from('orders').delete().eq('id', orderId);
         } catch {}
@@ -271,7 +271,7 @@ export async function DELETE(req: NextRequest) {
       // Delete ALL orders
       localOrdersCache = [];
 
-      if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      if (isSupabaseConfigured) {
         try {
           await supabase.from('orders').delete().neq('id', 'non-existent-placeholder');
         } catch (e: any) {

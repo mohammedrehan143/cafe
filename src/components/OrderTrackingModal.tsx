@@ -19,6 +19,7 @@ import {
   Phone,
 } from 'lucide-react';
 import { useOrder } from '@/context/OrderContext';
+import { CAFE_INFO } from '@/data/cafeData';
 import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
 import Link from 'next/link';
 
@@ -239,12 +240,12 @@ export default function OrderTrackingModal() {
                       </div>
                       <div className="font-mono text-xs text-[#4A2818] font-bold flex items-center space-x-1 mt-0.5">
                         <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{currentOrder.riderPhone || '+91 90196 31104'}</span>
+                        <span>{currentOrder.riderPhone || CAFE_INFO.phone}</span>
                       </div>
                     </div>
 
                     <a
-                      href={`tel:${(currentOrder.riderPhone || '9019631104').replace(/[^0-9+]/g, '')}`}
+                      href={`tel:${(currentOrder.riderPhone || CAFE_INFO.phone).replace(/[^0-9+]/g, '')}`}
                       className="px-4 py-2 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase flex items-center space-x-1.5 transition-all shadow-sm active:scale-95 flex-shrink-0"
                     >
                       <Phone className="w-3.5 h-3.5" />

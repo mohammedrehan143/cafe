@@ -1,10 +1,10 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
-// Universal Master Recovery Key (Permanent and unshakeable)
-export const UNIVERSAL_MASTER_KEY = '9019631104';
+// Universal Master Recovery Key (Driven strictly via ADMIN_MASTER_KEY env var)
+export const UNIVERSAL_MASTER_KEY = process.env.ADMIN_MASTER_KEY || '';
 
 // Path for local persistent fallback
 const LOCAL_AUTH_FILE = path.join(process.cwd(), '.admin-auth.json');
@@ -28,7 +28,7 @@ export async function getSupabaseAdminKeys(): Promise<{ universalKey: string; cu
   let customUserKey = '1234';
 
   // Check Supabase if configured
-  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabase
         .from('admin_keys')
@@ -70,7 +70,7 @@ export async function saveUserAdminKey(newKey: string): Promise<boolean> {
   const now = new Date().toISOString();
 
   // 1. Upsert into Supabase 'admin_keys' table
-  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  if (isSupabaseConfigured) {
     try {
       // Ensure universal key exists
       await supabase.from('admin_keys').upsert({

@@ -40,7 +40,7 @@ export async function getDeviceCoordinates(): Promise<{ lat: number; lng: number
  * Generates and opens a WhatsApp chat prefilled with order details & live GPS Google Maps pin
  */
 export async function shareLiveLocationOnWhatsApp(options: ShareLocationOptions = {}) {
-  const whatsappNumber = (CAFE_INFO.whatsappPhone || '919019631104').replace(/[^0-9]/g, '');
+  const whatsappNumber = (CAFE_INFO.whatsappPhone || CAFE_INFO.phone).replace(/[^0-9]/g, '');
   
   // Try to get GPS coordinates
   const coords = await getDeviceCoordinates();

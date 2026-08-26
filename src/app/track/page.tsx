@@ -24,8 +24,8 @@ import {
   Radio,
 } from 'lucide-react';
 import { Order } from '@/types/cafe';
-import { INITIAL_ORDERS } from '@/data/cafeData';
-import { supabase } from '@/lib/supabase';
+import { INITIAL_ORDERS, CAFE_INFO } from '@/data/cafeData';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
 
 function TrackerContent() {
@@ -140,7 +140,7 @@ function TrackerContent() {
     const trackingKey = currentOrder.trackingCode || currentOrder.tokenId || currentOrder.id;
 
     // Enable Supabase Realtime channel
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       const channel = supabase
         .channel(`live-tracking-${trackingKey}`)
         .on(
@@ -376,13 +376,13 @@ function TrackerContent() {
                     </div>
                     <div className="font-mono text-sm text-[#4A2818] font-bold flex items-center space-x-2 pt-0.5">
                       <Phone className="w-4 h-4 text-emerald-600" />
-                      <span>{currentOrder.riderPhone || '+91 90196 31104'}</span>
+                      <span>{currentOrder.riderPhone || CAFE_INFO.phone}</span>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2.5">
                     <a
-                      href={`tel:${(currentOrder.riderPhone || '9019631104').replace(/[^0-9+]/g, '')}`}
+                      href={`tel:${(currentOrder.riderPhone || CAFE_INFO.phone).replace(/[^0-9+]/g, '')}`}
                       className="px-5 py-3 rounded-2xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95 flex-1 sm:flex-initial"
                     >
                       <Phone className="w-4 h-4" />

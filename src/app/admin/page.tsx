@@ -233,7 +233,7 @@ export default function AdminPortalPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          currentKey: activeAuthKey || '9019631104',
+          currentKey: activeAuthKey || '',
           newKey: newKeyInput.trim(),
         }),
       });
@@ -435,7 +435,7 @@ export default function AdminPortalPage() {
 
           {/* Bottom Links */}
           <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-mono text-white/50">
-            <span>MASTER: 9019631104</span>
+            <span>Authorized Staff Only</span>
             <Link href="/" className="hover:text-white transition-colors underline">
               [ Customer Menu ]
             </Link>
@@ -815,7 +815,7 @@ export default function AdminPortalPage() {
 
               <form onSubmit={handleChangeKeySubmit} className="space-y-4">
                 <p className="text-xs text-white/70 font-sans">
-                  Set new custom PIN (min 4 characters). The Universal Master Key (<strong>9019631104</strong>) remains active as your recovery override.
+                  Set new custom PIN (min 4 characters). The Universal Master Key remains active as your recovery override.
                 </p>
 
                 <div>

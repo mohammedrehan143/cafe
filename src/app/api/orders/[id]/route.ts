@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { INITIAL_ORDERS } from '@/data/cafeData';
 import { Order, OrderStatus } from '@/types/cafe';
 import { checkRateLimit, sanitizeString } from '@/lib/security';
@@ -25,7 +25,7 @@ export async function GET(
     }
 
     // 1. Try Supabase lookup (matches token_id, tracking_code, id, or phone)
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
@@ -119,7 +119,7 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: 'Invalid order status' }, { status: 400 });
     }
 
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       try {
         const updatePayload: any = { status, updated_at: new Date().toISOString() };
         if (riderName) updatePayload.rider_name = sanitizeString(riderName, 60);

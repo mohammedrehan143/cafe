@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, DbMenuItemRow } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, DbMenuItemRow } from '@/lib/supabase';
 import { MENU_ITEMS } from '@/data/cafeData';
 import { MenuItem } from '@/types/cafe';
 import { checkRateLimit, sanitizeString } from '@/lib/security';
@@ -14,8 +14,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
 
-    // Fetch from Supabase if credentials are provided
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    // Fetch from Supabase if configured
+    if (isSupabaseConfigured) {
       let query = supabase
         .from('menu_items')
         .select('*')
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
       display_order: Number(displayOrder) || 0,
     };
 
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (isSupabaseConfigured) {
       const { data, error } = await supabase
         .from('menu_items')
         .upsert(payload)

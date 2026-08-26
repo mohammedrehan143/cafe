@@ -1,8 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Environment variables or fallback defaults for development
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://demo-cloud-kitchen.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'demo-anon-key-atelier-lambre-secure-token';
+// Environment variables (SUPABASE_URL / SUPABASE_ANON_KEY or NEXT_PUBLIC_ fallbacks)
+const supabaseUrl =
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://demo-cloud-kitchen.supabase.co';
+
+const supabaseAnonKey =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  'demo-anon-key-atelier-lambre-secure-token';
+
+export const isSupabaseConfigured = Boolean(
+  (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) &&
+  (process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) &&
+  !supabaseUrl.includes('demo-cloud-kitchen')
+);
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 

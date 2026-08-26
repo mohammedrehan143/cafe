@@ -562,21 +562,19 @@ ON CONFLICT (id) DO UPDATE SET
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.admin_keys (
     id TEXT PRIMARY KEY,                       -- 'universal' or 'custom'
-    key_name TEXT NOT NULL,                    -- 'universal_master_key' or 'custom_user_key'
-    key_value TEXT NOT NULL,                   -- '9019631104' or custom PIN
+    key_name TEXT NOT NULL,                    -- 'custom_user_key'
+    key_value TEXT NOT NULL,                   -- custom PIN
     key_hash TEXT,                             -- SHA-256 secure hash
     is_universal BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seed Initial Universal Key (9019631104) & Custom Key (1234)
+-- Seed Initial Default Custom Key (1234)
 INSERT INTO public.admin_keys (id, key_name, key_value, key_hash, is_universal, updated_at)
 VALUES 
-    ('universal', 'universal_master_key', '9019631104', '9019631104', TRUE, NOW()),
     ('custom', 'custom_user_key', '1234', '1234', FALSE, NOW())
-ON CONFLICT (id) DO UPDATE 
-SET key_value = EXCLUDED.key_value, updated_at = NOW();
+ON CONFLICT (id) DO NOTHING;
 
 -- Enable RLS
 ALTER TABLE public.admin_keys ENABLE ROW LEVEL SECURITY;
