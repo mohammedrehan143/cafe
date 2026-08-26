@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { MenuItem, CartItem, Order, OrderStatus, DeliveryMethod } from '@/types/cafe';
 import { INITIAL_ORDERS, MENU_ITEMS, CAFE_INFO } from '@/data/cafeData';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 interface OrderContextType {
   menuItems: MenuItem[];
@@ -120,7 +120,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   // Real-time Supabase Subscription for active tracking order
   useEffect(() => {
-    if (!activeTrackingOrder || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    if (!activeTrackingOrder || !isSupabaseConfigured) {
       return;
     }
 

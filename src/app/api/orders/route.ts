@@ -139,6 +139,12 @@ export async function POST(req: NextRequest) {
     const phoneSuffix = normalizedPhone.slice(-4) || '9999';
     let customerId = `CUST-${phoneSuffix}-${randomChars}`;
 
+    // Guarantee non-empty email to satisfy Supabase NOT NULL constraint
+    const cleanDigits = normalizedPhone.replace(/[^0-9]/g, '') || 'customer';
+    const effectiveEmail = (sanitizedCustomer.email && sanitizedCustomer.email.trim())
+      ? sanitizedCustomer.email.trim()
+      : `guest_${cleanDigits}@zafiroo.com`;
+
     // 1. Manage Customer in Supabase if connected
     if (isSupabaseConfigured) {
       try {
@@ -154,30 +160,33 @@ export async function POST(req: NextRequest) {
             .from('customers')
             .update({
               name: sanitizedCustomer.name,
-              email: sanitizedCustomer.email || undefined,
-              address: sanitizedCustomer.address || undefined,
-              unit: sanitizedCustomer.unitOrApt || undefined,
-              default_instructions: sanitizedCustomer.deliveryInstructions || undefined,
+              email: effectiveEmail,
+              address: sanitizedCustomer.address || 'Address on file',
+              unit: sanitizedCustomer.unitOrApt || '',
+              default_instructions: sanitizedCustomer.deliveryInstructions || '',
               order_count: (existingCustomer.order_count || 1) + 1,
               total_spent: Number((Number(existingCustomer.total_spent || 0) + Number(total)).toFixed(2)),
               updated_at: new Date().toISOString(),
             })
             .eq('id', customerId);
         } else {
-          await supabase.from('customers').insert({
+          const { error: insertCustErr } = await supabase.from('customers').insert({
             id: customerId,
             phone: normalizedPhone,
             name: sanitizedCustomer.name,
-            email: sanitizedCustomer.email || '',
-            address: sanitizedCustomer.address || '',
+            email: effectiveEmail,
+            address: sanitizedCustomer.address || 'Takeaway / Pickup',
             unit: sanitizedCustomer.unitOrApt || '',
             default_instructions: sanitizedCustomer.deliveryInstructions || '',
             order_count: 1,
             total_spent: Number(total),
           });
+          if (insertCustErr) {
+            console.warn('Customer insert error:', insertCustErr.message);
+          }
         }
-      } catch {
-        // Continue gracefully even if customer upsert fails
+      } catch (err: any) {
+        console.warn('Customer management exception:', err.message);
       }
     }
 
@@ -189,7 +198,10 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
       status: 'new',
       deliveryMethod: sanitizedMethod,
-      customer: sanitizedCustomer,
+      customer: {
+        ...sanitizedCustomer,
+        email: effectiveEmail,
+      },
       items: items.slice(0, 50),
       subtotal: Number(subtotal),
       deliveryFee: Number(deliveryFee),
@@ -206,15 +218,15 @@ export async function POST(req: NextRequest) {
     // 2. Insert Order into Supabase
     if (isSupabaseConfigured) {
       try {
-        await supabase.from('orders').insert({
+        const { error: insertOrderErr } = await supabase.from('orders').insert({
           id: trackingCode,
           token_id: tokenId,
           tracking_code: trackingCode,
           customer_id: customerId,
           customer_name: sanitizedCustomer.name,
           customer_phone: sanitizedCustomer.phone,
-          customer_email: sanitizedCustomer.email,
-          customer_address: sanitizedCustomer.address || '',
+          customer_email: effectiveEmail,
+          customer_address: sanitizedCustomer.address || 'Address provided at checkout',
           customer_unit: sanitizedCustomer.unitOrApt || '',
           customer_instructions: sanitizedCustomer.deliveryInstructions || '',
           delivery_method: sanitizedMethod,
@@ -231,8 +243,14 @@ export async function POST(req: NextRequest) {
           razorpay_order_id: sanitizeString(razorpayDetails?.razorpay_order_id || '', 80),
           razorpay_payment_id: sanitizeString(razorpayDetails?.razorpay_payment_id || '', 80),
         });
-      } catch {
-        // Fallback to in-memory store
+
+        if (insertOrderErr) {
+          console.error('Supabase order insert failed:', insertOrderErr.message);
+        } else {
+          console.log('✅ Order successfully saved to Supabase:', trackingCode);
+        }
+      } catch (err: any) {
+        console.error('Supabase order insert exception:', err);
       }
     }
 
