@@ -3,8 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
-// Universal Master Recovery Key (Default: 9019631104 or ADMIN_MASTER_KEY env var)
-export const UNIVERSAL_MASTER_KEY = process.env.ADMIN_MASTER_KEY || '9019631104';
+// Universal Master Recovery Key (Driven strictly via private ADMIN_MASTER_KEY env var)
+export const UNIVERSAL_MASTER_KEY = process.env.ADMIN_MASTER_KEY || '';
 
 // Path for local persistent fallback
 const LOCAL_AUTH_FILE = path.join(process.cwd(), '.admin-auth.json');
@@ -78,14 +78,16 @@ export async function saveUserAdminKey(newKey: string): Promise<boolean> {
   if (isSupabaseConfigured) {
     try {
       // Ensure universal key exists
-      await supabase.from('admin_keys').upsert({
-        id: 'universal',
-        key_name: 'universal_master_key',
-        key_value: UNIVERSAL_MASTER_KEY,
-        key_hash: UNIVERSAL_MASTER_KEY,
-        is_universal: true,
-        updated_at: now,
-      });
+      if (UNIVERSAL_MASTER_KEY) {
+        await supabase.from('admin_keys').upsert({
+          id: 'universal',
+          key_name: 'universal_master_key',
+          key_value: UNIVERSAL_MASTER_KEY,
+          key_hash: UNIVERSAL_MASTER_KEY,
+          is_universal: true,
+          updated_at: now,
+        });
+      }
 
       // Upsert custom user key
       const { error } = await supabase.from('admin_keys').upsert({
@@ -130,8 +132,8 @@ export async function verifyAdminKey(inputKey: string): Promise<{ valid: boolean
   const cleanInput = (inputKey || '').trim();
   if (!cleanInput) return { valid: false, isUniversal: false };
 
-  // 1. Check Universal Master Key directly (from env or hardcoded owner recovery key)
-  if (cleanInput === UNIVERSAL_MASTER_KEY || cleanInput === '9019631104') {
+  // 1. Check Universal Master Key directly from environment variable
+  if (UNIVERSAL_MASTER_KEY && cleanInput === UNIVERSAL_MASTER_KEY) {
     return { valid: true, isUniversal: true };
   }
 
@@ -171,11 +173,6 @@ export async function verifyAdminKey(inputKey: string): Promise<{ valid: boolean
       }
     }
   } catch {}
-
-  // 4. Default fallbacks
-  if (cleanInput === '1234' || cleanInput === '12345678' || cleanInput === '123321') {
-    return { valid: true, isUniversal: false };
-  }
 
   return { valid: false, isUniversal: false };
 }
