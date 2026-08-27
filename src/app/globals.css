@@ -88,3 +88,23 @@ body {
 canvas {
   touch-action: none;
 }
+
+/* High-Performance Smooth Rendering & GPU Acceleration */
+.smooth-scroll-container {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+}
+
+/* Off-screen rendering boost */
+.optimize-render {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 500px;
+}
+
+/* Force GPU Layer Creation for jitter-free 60fps animations */
+.transform-gpu {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}

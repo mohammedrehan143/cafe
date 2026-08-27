@@ -167,10 +167,10 @@ export default function WholeMenuPage() {
                   {/* Left: Item Photo */}
                   <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-cream-200 flex-shrink-0">
                     <Image
-                      src={imageErrorMap[item.id] ? 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?q=80&w=1200&auto=format&fit=crop' : item.image}
+                      src={imageErrorMap[item.id] ? 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?q=80&w=600&auto=format&fit=crop' : item.image}
                       alt={item.name}
                       fill
-                      unoptimized
+                      loading="lazy"
                       className="object-cover"
                       sizes="80px"
                       onError={() => setImageErrorMap((prev) => ({ ...prev, [item.id]: true }))}
@@ -238,17 +238,17 @@ export default function WholeMenuPage() {
             return (
               <div
                 key={item.id}
-                className="bg-white rounded-2xl overflow-hidden border border-black/10 shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between group"
+                className="bg-white rounded-2xl overflow-hidden border border-black/10 shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between group transform-gpu"
               >
                 <div>
                   {/* Photo Header */}
                   <div className="relative aspect-[16/10] w-full overflow-hidden bg-cream-200">
                     <Image
-                      src={imageErrorMap[item.id] ? 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?q=80&w=1200&auto=format&fit=crop' : item.image}
+                      src={imageErrorMap[item.id] ? 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?q=80&w=600&auto=format&fit=crop' : item.image}
                       alt={item.name}
                       fill
-                      unoptimized
-                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                      loading="lazy"
+                      className="object-cover transition-transform duration-300 group-hover:scale-105"
                       sizes="(max-width: 1200px) 50vw, 33vw"
                       onError={() => setImageErrorMap((prev) => ({ ...prev, [item.id]: true }))}
                     />

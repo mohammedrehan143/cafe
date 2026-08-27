@@ -14,7 +14,6 @@ import Link from 'next/link';
 
 export default function ZafirooHero() {
   const { setCartDrawerOpen, cartCount } = useOrder();
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
 
   // Local HD video scenes for full culinary variety (Coffee, Burger & Fries, Cakes & Pastries, Espresso Crema)
@@ -24,49 +23,38 @@ export default function ZafirooHero() {
       foodName: 'Specialty Latte Art Coffee',
       tagline: 'Single-Origin Arabica & Silky Microfoam',
       url: '/videos/coffee-latte.mp4',
-      poster: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?q=80&w=1600&auto=format&fit=crop',
+      poster: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?q=75&w=1200&auto=format&fit=crop',
     },
     {
       id: 'burger-fries',
       foodName: 'Gourmet Burgers & Crispy Fries',
       tagline: 'Triple-Cooked Crunch & Sizzling Brioche',
       url: '/videos/burger-fries.mp4',
-      poster: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?q=80&w=1600&auto=format&fit=crop',
+      poster: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?q=75&w=1200&auto=format&fit=crop',
     },
     {
       id: 'cake-pastry',
       foodName: 'Molten Chocolate Lava & Pastries',
       tagline: '70% Belgian Couverture & Warm Molten Core',
       url: '/videos/cake-pastry.mp4',
-      poster: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?q=80&w=1600&auto=format&fit=crop',
+      poster: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?q=75&w=1200&auto=format&fit=crop',
     },
     {
       id: 'espresso',
       foodName: 'Zafiroo Cold Coffee & Crema',
       tagline: 'Slow Extraction & Ice-Blended Brews',
       url: '/videos/espresso.mp4',
-      poster: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=1600&auto=format&fit=crop',
+      poster: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=75&w=1200&auto=format&fit=crop',
     },
   ];
 
   const currentScene = heroVideoScenes[activeVideoIndex];
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      const x = (e.clientX / window.innerWidth - 0.5) * 35;
-      const y = (e.clientY / window.innerHeight - 0.5) * 35;
-      setMousePos({ x, y });
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
-
-  // Automatic Smooth Slideshow Transition Timer (cycles every 6 seconds)
+  // Automatic Smooth Slideshow Transition Timer (cycles every 7 seconds)
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveVideoIndex((prev) => (prev + 1) % heroVideoScenes.length);
-    }, 6000);
+    }, 7000);
 
     return () => clearInterval(interval);
   }, [heroVideoScenes.length]);
@@ -85,51 +73,38 @@ export default function ZafirooHero() {
     <section
       id="hero"
       onClick={handleHeroClick}
-      className="relative min-h-[100svh] w-full pt-4 sm:pt-6 pb-8 sm:pb-12 flex flex-col justify-between overflow-hidden select-none text-white cursor-pointer"
+      className="relative min-h-[100svh] w-full pt-4 sm:pt-6 pb-8 sm:pb-12 flex flex-col justify-between overflow-hidden select-none text-white cursor-pointer will-change-transform"
       title="Click anywhere to change video"
     >
-      {/* 1. CINEMATIC FULL-SCREEN BACKGROUND VIDEO SLIDESHOW (z-0) */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        {heroVideoScenes.map((scene, idx) => {
-          const isActive = activeVideoIndex === idx;
+      {/* 1. CINEMATIC FULL-SCREEN BACKGROUND VIDEO (Smooth single-player with crossfade) */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0 transform-gpu">
+        {/* Poster image background */}
+        <div className="absolute inset-0 w-full h-full">
+          <Image
+            src={currentScene.poster}
+            alt={currentScene.foodName}
+            fill
+            priority
+            className="object-cover opacity-80 transition-opacity duration-700"
+          />
+        </div>
 
-          return (
-            <div
-              key={scene.id}
-              className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out ${
-                isActive ? 'opacity-100 z-10' : 'opacity-0 z-0'
-              }`}
-            >
-              {/* Fallback Poster */}
-              <div className="absolute inset-0 w-full h-full">
-                <Image
-                  src={scene.poster}
-                  alt={scene.foodName}
-                  fill
-                  className="object-cover opacity-75"
-                  priority={idx === 0}
-                />
-              </div>
-
-              {/* Autoplaying Muted Video */}
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="auto"
-                poster={scene.poster}
-                className="absolute inset-0 w-full h-full object-cover"
-              >
-                <source src={scene.url} type="video/mp4" />
-              </video>
-            </div>
-          );
-        })}
+        {/* Lightweight Single Active Video Player */}
+        <video
+          key={currentScene.id}
+          autoPlay
+          loop
+          muted
+          playsInline
+          poster={currentScene.poster}
+          className="absolute inset-0 w-full h-full object-cover animate-fade-in transition-opacity duration-700"
+        >
+          <source src={currentScene.url} type="video/mp4" />
+        </video>
 
         {/* Clean Contrast Gradients */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/50 z-20" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/60 z-20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/50 z-20 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/60 z-20 pointer-events-none" />
       </div>
 
       {/* 2. TOP NAVBAR ROW (z-30) */}

@@ -105,23 +105,23 @@ export async function POST(req: NextRequest) {
     const tokenId = `TOK-${randomDigits}-${randomChars}`;
 
     // Clean phone number for customer identity
-    const normalizedPhone = sanitizedCustomer.phone.replace(/[^0-9+]/g, '');
-    const phoneSuffix = normalizedPhone.slice(-4) || '9999';
-    let customerId = `CUST-${phoneSuffix}-${randomChars}`;
+    const cleanDigits = sanitizedCustomer.phone.replace(/[^0-9]/g, '');
+    const last10 = cleanDigits.slice(-10) || cleanDigits || '9999999999';
+    let customerId = `CUST-${last10}-${randomChars}`;
 
     // Guarantee non-empty email to satisfy Supabase NOT NULL constraint
-    const cleanDigits = normalizedPhone.replace(/[^0-9]/g, '') || 'customer';
     const effectiveEmail = (sanitizedCustomer.email && sanitizedCustomer.email.trim())
       ? sanitizedCustomer.email.trim()
-      : `guest_${cleanDigits}@zafiroo.com`;
+      : `guest_${last10}@zafiroo.com`;
 
-    // 1. Manage Customer in Supabase if connected
+    // 1. Manage Customer in Supabase (Robust resolution by phone to avoid Foreign Key violations)
     if (isSupabaseConfigured) {
       try {
         const { data: existingCustomer } = await supabase
           .from('customers')
           .select('id, order_count, total_spent')
-          .eq('phone', normalizedPhone)
+          .or(`phone.eq.${sanitizedCustomer.phone},phone.ilike.%${last10}%`)
+          .limit(1)
           .maybeSingle();
 
         if (existingCustomer) {
@@ -140,9 +140,10 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', customerId);
         } else {
+          // Insert new customer
           const { error: insertCustErr } = await supabase.from('customers').insert({
             id: customerId,
-            phone: normalizedPhone,
+            phone: last10,
             name: sanitizedCustomer.name,
             email: effectiveEmail,
             address: sanitizedCustomer.address || 'Takeaway / Pickup',
@@ -151,8 +152,19 @@ export async function POST(req: NextRequest) {
             order_count: 1,
             total_spent: Number(total),
           });
+
           if (insertCustErr) {
-            console.warn('Customer insert error:', insertCustErr.message);
+            console.warn('Customer insert collision, re-fetching customer:', insertCustErr.message);
+            const { data: fallbackCust } = await supabase
+              .from('customers')
+              .select('id')
+              .or(`phone.eq.${sanitizedCustomer.phone},phone.ilike.%${last10}%`)
+              .limit(1)
+              .maybeSingle();
+
+            if (fallbackCust) {
+              customerId = fallbackCust.id;
+            }
           }
         }
       } catch (err: any) {
@@ -170,6 +182,7 @@ export async function POST(req: NextRequest) {
       deliveryMethod: sanitizedMethod,
       customer: {
         ...sanitizedCustomer,
+        phone: last10,
         email: effectiveEmail,
       },
       items: items.slice(0, 50),
@@ -188,13 +201,13 @@ export async function POST(req: NextRequest) {
     // 2. Insert Order into Supabase
     if (isSupabaseConfigured) {
       try {
-        const { error: insertOrderErr } = await supabase.from('orders').insert({
+        const orderInsertPayload = {
           id: trackingCode,
           token_id: tokenId,
           tracking_code: trackingCode,
           customer_id: customerId,
           customer_name: sanitizedCustomer.name,
-          customer_phone: sanitizedCustomer.phone,
+          customer_phone: last10,
           customer_email: effectiveEmail,
           customer_address: sanitizedCustomer.address || 'Address provided at checkout',
           customer_unit: sanitizedCustomer.unitOrApt || '',
@@ -212,7 +225,25 @@ export async function POST(req: NextRequest) {
           payment_status: 'completed',
           razorpay_order_id: sanitizeString(razorpayDetails?.razorpay_order_id || '', 80),
           razorpay_payment_id: sanitizeString(razorpayDetails?.razorpay_payment_id || '', 80),
-        });
+        };
+
+        let { error: insertOrderErr } = await supabase.from('orders').insert(orderInsertPayload);
+
+        // If a foreign key mismatch on customer_id occurred, fallback to creating customer first
+        if (insertOrderErr && insertOrderErr.code === '23503') {
+          console.warn('Handling foreign key customer fallback...');
+          await supabase.from('customers').upsert({
+            id: customerId,
+            phone: last10,
+            name: sanitizedCustomer.name,
+            email: effectiveEmail,
+            address: sanitizedCustomer.address || 'Address',
+            order_count: 1,
+            total_spent: Number(total),
+          });
+          const retryRes = await supabase.from('orders').insert(orderInsertPayload);
+          insertOrderErr = retryRes.error;
+        }
 
         if (insertOrderErr) {
           console.error('Supabase order insert failed:', insertOrderErr.message);

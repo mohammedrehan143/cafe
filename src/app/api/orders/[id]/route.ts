@@ -21,51 +21,117 @@ export async function GET(
 
   try {
     const { id } = await params;
-    const lookupId = sanitizeString(decodeURIComponent(id).trim().toUpperCase(), 40);
+    const rawLookup = decodeURIComponent(id).trim();
+    const lookupId = sanitizeString(rawLookup.toUpperCase(), 40);
+    const cleanDigits = rawLookup.replace(/[^0-9]/g, '');
 
-    if (!lookupId) {
+    if (!lookupId && !cleanDigits) {
       return NextResponse.json(
-        { success: false, error: 'Tracking ID or Token is required' },
+        { success: false, error: 'Tracking ID or Phone Number is required' },
         { status: 400, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
       );
     }
 
-    // 1. Try Supabase lookup (matches token_id, tracking_code, id, or phone)
+    // 1. Try Supabase lookup
     if (isSupabaseConfigured) {
+      // Build search query across token, tracking code, id, and phone
+      let searchFilter = `id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`;
+      if (cleanDigits.length >= 4) {
+        searchFilter += `,customer_phone.ilike.%${cleanDigits}%`;
+      }
+
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%,customer_phone.ilike.%${lookupId}%`)
-        .limit(1)
-        .maybeSingle();
+        .or(searchFilter)
+        .order('created_at', { ascending: false })
+        .limit(25);
 
-      if (!error && data) {
-        const order: Order = formatDbOrderToOrder(data);
+      if (!error && data && data.length > 0) {
+        const formattedOrders: Order[] = data.map((row) => formatDbOrderToOrder(row));
+
+        // Check if query was an exact single order token/id match
+        const exactMatch = formattedOrders.find(
+          (o) =>
+            o.id.toUpperCase() === lookupId ||
+            (o.tokenId && o.tokenId.toUpperCase() === lookupId) ||
+            (o.trackingCode && o.trackingCode.toUpperCase() === lookupId)
+        );
+
+        if (exactMatch) {
+          return NextResponse.json(
+            { success: true, order: exactMatch, orders: [exactMatch], isExact: true },
+            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+          );
+        }
+
+        // Otherwise filter only ACTIVE / RUNNING orders (exclude completed & cancelled)
+        const runningOrders = formattedOrders.filter(
+          (o) => o.status !== 'completed' && o.status !== 'cancelled'
+        );
+
+        if (runningOrders.length > 0) {
+          return NextResponse.json(
+            {
+              success: true,
+              orders: runningOrders,
+              order: runningOrders[0],
+              count: runningOrders.length,
+            },
+            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+          );
+        }
+
+        // All matched orders are already completed
         return NextResponse.json(
-          { success: true, order },
-          { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+          {
+            success: false,
+            error: 'All past orders for this number are completed. (No active kitchen orders running)',
+            allCompleted: true,
+          },
+          { status: 404, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
         );
       }
     }
 
     // 2. Fallback search in initial demo orders
-    const matched = INITIAL_ORDERS.find(
+    const matchedList = INITIAL_ORDERS.filter(
       (o) =>
         o.id.toUpperCase().includes(lookupId) ||
         (o.tokenId && o.tokenId.toUpperCase().includes(lookupId)) ||
-        o.customer.phone.includes(lookupId) ||
+        (cleanDigits && o.customer.phone.replace(/[^0-9]/g, '').includes(cleanDigits)) ||
         o.customer.name.toUpperCase().includes(lookupId)
     );
 
-    if (matched) {
+    if (matchedList.length > 0) {
+      const runningOrders = matchedList.filter(
+        (o) => o.status !== 'completed' && o.status !== 'cancelled'
+      );
+
+      if (runningOrders.length > 0) {
+        return NextResponse.json(
+          {
+            success: true,
+            orders: runningOrders,
+            order: runningOrders[0],
+            count: runningOrders.length,
+          },
+          { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+        );
+      }
+
       return NextResponse.json(
-        { success: true, order: matched },
-        { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+        {
+          success: false,
+          error: 'All past orders for this number are completed.',
+          allCompleted: true,
+        },
+        { status: 404, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
       );
     }
 
     return NextResponse.json(
-      { success: false, error: 'Order not found' },
+      { success: false, error: 'No active orders found for this number or Token ID.' },
       { status: 404, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
   } catch (err: any) {

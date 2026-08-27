@@ -33,7 +33,9 @@ function TrackerContent() {
   const initialQueryId = searchParams.get('id') || '';
 
   const [searchId, setSearchId] = useState(initialQueryId);
+  const [runningOrders, setRunningOrders] = useState<Order[]>([]);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
+  const [showList, setShowList] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
@@ -47,46 +49,70 @@ function TrackerContent() {
     }
 
     try {
-      // 1. Query API (matches token_id, tracking_code, id, or phone)
+      // 1. Query API (returns active running orders or exact token)
       const res = await fetch(`/api/orders/${encodeURIComponent(query.trim())}`, {
         cache: 'no-store',
       });
       const data = await res.json();
 
-      if (data.success && data.order) {
-        setCurrentOrder(data.order);
-      } else {
-        // 2. Local storage / Demo Fallback
-        const saved = localStorage.getItem('atelier_lambre_orders_v1');
-        const localList: Order[] = saved ? JSON.parse(saved) : INITIAL_ORDERS;
-        const matched = localList.find(
-          (o) =>
-            o.id.toUpperCase() === query.trim().toUpperCase() ||
-            (o.tokenId && o.tokenId.toUpperCase() === query.trim().toUpperCase()) ||
-            o.customer.phone.includes(query.trim()) ||
-            o.customer.name.toLowerCase().includes(query.trim().toLowerCase())
-        );
+      if (data.success) {
+        const list: Order[] = Array.isArray(data.orders) && data.orders.length > 0
+          ? data.orders
+          : (data.order ? [data.order] : []);
 
-        if (matched) {
-          setCurrentOrder(matched);
-        } else if (!silent) {
-          setErrorMsg('No active order found with this Token ID. (Orders older than 10 days are auto-archived)');
+        setRunningOrders(list);
+
+        if (!currentOrder && !silent) {
+          setShowList(true);
           setCurrentOrder(null);
+        } else if (currentOrder) {
+          // Keep active detailed order in sync
+          const updatedMatch = list.find((o) => o.id === currentOrder.id || o.tokenId === currentOrder.tokenId);
+          if (updatedMatch) {
+            setCurrentOrder(updatedMatch);
+          }
+        }
+        setErrorMsg(null);
+      } else {
+        // Fallback or error message
+        if (data.allCompleted) {
+          setErrorMsg('All past orders for this number have been completed. (Only running kitchen orders are displayed)');
+        } else {
+          setErrorMsg(data.error || 'No active orders found for this Phone number or Token ID.');
+        }
+        if (!silent) {
+          setRunningOrders([]);
+          setCurrentOrder(null);
+          setShowList(false);
         }
       }
     } catch {
       // Offline fallback
       const saved = localStorage.getItem('atelier_lambre_orders_v1');
       const localList: Order[] = saved ? JSON.parse(saved) : INITIAL_ORDERS;
-      const matched = localList.find(
+      const cleanDigits = query.replace(/[^0-9]/g, '');
+      const matched = localList.filter(
         (o) =>
           o.id.toUpperCase() === query.trim().toUpperCase() ||
-          (o.tokenId && o.tokenId.toUpperCase() === query.trim().toUpperCase())
+          (o.tokenId && o.tokenId.toUpperCase() === query.trim().toUpperCase()) ||
+          (cleanDigits && o.customer.phone.replace(/[^0-9]/g, '').includes(cleanDigits))
       );
-      if (matched) {
-        setCurrentOrder(matched);
+
+      const activeLocal = matched.filter((o) => o.status !== 'completed' && o.status !== 'cancelled');
+
+      if (activeLocal.length > 0) {
+        setRunningOrders(activeLocal);
+        if (activeLocal.length > 1 && !currentOrder && !silent) {
+          setShowList(true);
+          setCurrentOrder(null);
+        } else {
+          setCurrentOrder(activeLocal[0]);
+          setShowList(false);
+        }
       } else if (!silent) {
-        setErrorMsg('Unable to retrieve tracking details. Please verify your Token ID.');
+        setErrorMsg('Unable to retrieve tracking details. Please verify your Token ID or Phone number.');
+        setRunningOrders([]);
+        setCurrentOrder(null);
       }
     } finally {
       if (!silent) {
@@ -100,10 +126,12 @@ function TrackerContent() {
       fetchOrder(initialQueryId);
     } else {
       setCurrentOrder(null);
+      setRunningOrders([]);
+      setShowList(false);
     }
   }, [initialQueryId]);
 
-  // Real-time auto sync: Polling every 1.5s + storage event listener
+  // Real-time auto sync: Polling every 1.5s
   useEffect(() => {
     const targetQuery = searchId || initialQueryId;
     if (!targetQuery) return;
@@ -112,75 +140,61 @@ function TrackerContent() {
       fetchOrder(targetQuery, true);
     }, 1500);
 
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'atelier_lambre_orders_v1' && e.newValue) {
-        try {
-          const list: Order[] = JSON.parse(e.newValue);
-          const matched = list.find(
-            (o) =>
-              o.id.toUpperCase() === targetQuery.trim().toUpperCase() ||
-              (o.tokenId && o.tokenId.toUpperCase() === targetQuery.trim().toUpperCase())
-          );
-          if (matched) {
-            setCurrentOrder(matched);
-          }
-        } catch {}
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-
     return () => {
       clearInterval(pollInterval);
-      window.removeEventListener('storage', handleStorage);
     };
-  }, [searchId, initialQueryId]);
+  }, [searchId, initialQueryId, currentOrder?.id]);
 
   // Real-time Supabase Subscription for Live Tracking
   useEffect(() => {
-    if (!currentOrder) return;
+    if (!currentOrder || !isSupabaseConfigured) return;
 
     const trackingKey = currentOrder.trackingCode || currentOrder.tokenId || currentOrder.id;
 
-    // Enable Supabase Realtime channel
-    if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel(`live-tracking-${trackingKey}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'orders',
-          },
-          (payload: any) => {
-            const updated = payload.new;
-            if (
-              updated &&
-              (updated.tracking_code === trackingKey ||
-                updated.token_id === trackingKey ||
-                updated.id === trackingKey ||
-                updated.customer_phone === currentOrder.customer.phone)
-            ) {
-              const formatted = formatDbOrderToOrder(updated);
-              setCurrentOrder((prev) => (prev ? { ...prev, ...formatted } : formatted));
-            }
+    const channel = supabase
+      .channel(`live-tracking-${trackingKey}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+        },
+        (payload: any) => {
+          const updated = payload.new;
+          if (
+            updated &&
+            (updated.tracking_code === trackingKey ||
+              updated.token_id === trackingKey ||
+              updated.id === trackingKey ||
+              updated.customer_phone === currentOrder.customer.phone)
+          ) {
+            const formatted = formatDbOrderToOrder(updated);
+            setCurrentOrder((prev) => (prev ? { ...prev, ...formatted } : formatted));
+            setRunningOrders((prevList) =>
+              prevList.map((o) =>
+                o.id === formatted.id || o.tokenId === formatted.tokenId ? { ...o, ...formatted } : o
+              )
+            );
           }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            setIsLiveConnected(true);
-          }
-        });
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setIsLiveConnected(true);
+        }
+      });
 
-      return () => {
-        setIsLiveConnected(false);
-        supabase.removeChannel(channel);
-      };
-    }
+    return () => {
+      setIsLiveConnected(false);
+      supabase.removeChannel(channel);
+    };
   }, [currentOrder?.id, currentOrder?.tokenId]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setCurrentOrder(null);
+    setShowList(false);
     fetchOrder(searchId);
   };
 
@@ -188,6 +202,41 @@ function TrackerContent() {
     navigator.clipboard.writeText(text);
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 2000);
+  };
+
+  const getRunningStatusBadge = (status: string) => {
+    switch (status) {
+      case 'new':
+        return {
+          bg: 'bg-rose-50 text-rose-800 border-rose-200',
+          label: 'Order Received',
+          icon: '📋',
+        };
+      case 'preparing':
+        return {
+          bg: 'bg-amber-50 text-amber-900 border-amber-300',
+          label: 'Chef Preparing',
+          icon: '🍳',
+        };
+      case 'ready':
+        return {
+          bg: 'bg-indigo-50 text-indigo-900 border-indigo-300',
+          label: 'Packed & Ready',
+          icon: '📦',
+        };
+      case 'delivering':
+        return {
+          bg: 'bg-blue-50 text-blue-900 border-blue-300',
+          label: 'Out for Delivery',
+          icon: '🛵',
+        };
+      default:
+        return {
+          bg: 'bg-neutral-100 text-neutral-800 border-neutral-200',
+          label: status.toUpperCase(),
+          icon: '⚡',
+        };
+    }
   };
 
   const steps = [
@@ -221,19 +270,19 @@ function TrackerContent() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10">
       {/* Search Bar Input */}
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-banhmi-gold/30 shadow-warm-xl mb-10 text-center space-y-4">
+      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-banhmi-gold/30 shadow-warm-xl mb-8 text-center space-y-4">
         <h2 className="font-display text-4xl sm:text-5xl uppercase font-black text-banhmi-dark tracking-tight">
           Track Your <span className="text-banhmi-red">Zafiroo Order</span>
         </h2>
         <p className="text-xs sm:text-sm text-banhmi-dark/70 max-w-md mx-auto">
-          Enter your <strong className="font-mono text-banhmi-red">Token ID</strong>
+          Enter your <strong className="font-mono text-banhmi-red">Phone Number</strong> or <strong className="font-mono text-banhmi-red">Token ID</strong> to see running orders.
         </p>
 
         <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-2.5 max-w-lg mx-auto pt-2">
           <input
             type="text"
             required
-            placeholder="Enter Token ID..."
+            placeholder="Enter Phone number or Token ID..."
             value={searchId}
             onChange={(e) => setSearchId(e.target.value)}
             className="flex-1 px-4 py-3 rounded-2xl bg-[#FFF8F0] border border-banhmi-gold/40 text-banhmi-dark font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-banhmi-red"
@@ -244,7 +293,7 @@ function TrackerContent() {
             className="px-7 py-3 rounded-2xl bg-banhmi-red hover:bg-banhmi-redDark text-white font-display text-base uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
           >
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            <span>Track Live</span>
+            <span>Track Orders</span>
           </button>
         </form>
 
@@ -256,13 +305,132 @@ function TrackerContent() {
         )}
       </div>
 
-      {/* Live Order Display Card */}
-      {currentOrder && (
+      {/* ACTIVE RUNNING ORDERS LIST (Always shown first on search) */}
+      {(showList || (!currentOrder && runningOrders.length > 0)) && runningOrders.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4 mb-10"
+        >
+          <div className="flex items-center justify-between bg-white p-4 sm:p-5 rounded-2xl border border-banhmi-gold/30 shadow-sm">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                <span className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-800">
+                  {runningOrders.length} Running Kitchen Order{runningOrders.length > 1 ? 's' : ''} Found
+                </span>
+              </div>
+              <p className="text-xs text-banhmi-dark/70 font-sans mt-0.5">
+                Select any active order below to track its live stage, courier, and arrival time.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {runningOrders.map((order) => {
+              const badge = getRunningStatusBadge(order.status);
+              const itemsCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+              const itemsPreview = order.items.map((i) => `${i.quantity}x ${i.menuItem.name}`).join(', ');
+
+              return (
+                <div
+                  key={order.id}
+                  onClick={() => {
+                    setCurrentOrder(order);
+                    setShowList(false);
+                  }}
+                  className="bg-white rounded-3xl p-5 sm:p-6 border border-banhmi-gold/40 shadow-warm-md hover:shadow-warm-xl hover:border-banhmi-red transition-all cursor-pointer flex flex-col justify-between space-y-4 group active:scale-[0.99]"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-black text-banhmi-red text-base">
+                        #{order.tokenId || order.id}
+                      </span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold uppercase border flex items-center space-x-1 ${badge.bg}`}>
+                        <span>{badge.icon}</span>
+                        <span>{badge.label}</span>
+                      </span>
+                    </div>
+
+                    <div className="text-xs font-mono text-banhmi-dark/60">
+                      Placed: {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {order.deliveryMethod === 'delivery' ? '🛵 Home Delivery' : '🏪 Counter Pickup'}
+                    </div>
+
+                    <div className="pt-2 border-t border-cream-200">
+                      <span className="text-[11px] font-mono uppercase text-banhmi-dark/50 font-bold block mb-1">
+                        Items ({itemsCount})
+                      </span>
+                      <p className="text-xs font-sans text-banhmi-dark font-medium line-clamp-2">
+                        {itemsPreview}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-cream-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono text-banhmi-dark/50 uppercase block">Total</span>
+                      <span className="font-display text-xl uppercase font-black text-banhmi-dark">
+                        ₹{order.total.toFixed(0)}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentOrder(order);
+                        setShowList(false);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-banhmi-dark group-hover:bg-banhmi-red text-white text-xs font-mono font-bold uppercase transition-colors flex items-center space-x-1.5 shadow-sm"
+                    >
+                      <span>Track Live</span>
+                      <span>→</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* SINGLE LIVE ORDER DETAIL VIEW */}
+      {currentOrder && !showList && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-3xl border border-banhmi-gold/30 shadow-warm-xl overflow-hidden mb-12"
         >
+          {/* Top Switcher Strip */}
+          {runningOrders.length > 0 && (
+            <div className="bg-[#FFF4E6] px-6 py-3 border-b border-banhmi-gold/30 flex items-center justify-between flex-wrap gap-2">
+              <button
+                onClick={() => setShowList(true)}
+                className="text-xs font-mono font-bold text-banhmi-red hover:underline flex items-center space-x-1"
+              >
+                <span>←</span>
+                <span>Back to Orders List ({runningOrders.length})</span>
+              </button>
+
+              {runningOrders.length > 1 && (
+                <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar">
+                  {runningOrders.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => setCurrentOrder(o)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold uppercase transition-all ${
+                        (o.id === currentOrder.id || o.tokenId === currentOrder.tokenId)
+                          ? 'bg-banhmi-red text-white'
+                          : 'bg-white text-banhmi-dark/70 hover:bg-cream-200 border border-banhmi-gold/30'
+                      }`}
+                    >
+                      #{o.tokenId || o.id}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Header Strip */}
           <div className="p-6 sm:p-8 bg-banhmi-card/70 border-b border-cream-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>

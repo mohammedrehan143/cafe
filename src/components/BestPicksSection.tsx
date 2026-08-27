@@ -150,15 +150,10 @@ export default function BestPicksSection({ onSelectItem }: BestPicksSectionProps
             const isAdded = addedNotice === item.id;
 
             return (
-              <motion.div
+              <div
                 key={item.id}
-                layout
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
                 onClick={() => onSelectItem && onSelectItem(item)}
-                className="w-[240px] sm:w-[270px] md:w-[290px] flex-shrink-0 snap-start bg-white rounded-2xl overflow-hidden border border-black/10 shadow-md hover:shadow-xl transition-all duration-300 flex flex-col justify-between group cursor-pointer"
+                className="w-[240px] sm:w-[270px] md:w-[290px] flex-shrink-0 snap-start bg-white rounded-2xl overflow-hidden border border-black/10 shadow-md hover:shadow-xl transition-all duration-200 flex flex-col justify-between group cursor-pointer transform-gpu"
               >
                 <div>
                   {/* Photo Container */}
@@ -167,8 +162,8 @@ export default function BestPicksSection({ onSelectItem }: BestPicksSectionProps
                       src={item.image}
                       alt={item.name}
                       fill
-                      unoptimized
-                      className="object-cover transition-transform duration-500 group-hover:scale-108"
+                      loading="lazy"
+                      className="object-cover transition-transform duration-300 group-hover:scale-105"
                       sizes="(max-width: 768px) 240px, 300px"
                     />
                     <div className="absolute top-2 left-2 bg-black/70 backdrop-blur-md px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold text-white shadow-sm border border-white/20">
@@ -222,7 +217,7 @@ export default function BestPicksSection({ onSelectItem }: BestPicksSectionProps
                     )}
                   </button>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
 
