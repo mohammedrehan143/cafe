@@ -692,6 +692,59 @@ function TrackerContent() {
               </div>
             </div>
 
+            {/* Chef Customization Note Display */}
+            {currentOrder.customer?.deliveryInstructions && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-mono space-y-1.5">
+                <div className="flex items-center space-x-1.5 font-bold text-amber-900">
+                  <ChefHat className="w-4 h-4 text-amber-800" />
+                  <span>Your Customization Message for the Chef:</span>
+                </div>
+                <p className="text-amber-950 font-sans italic text-sm pl-5 leading-relaxed">
+                  &ldquo;{currentOrder.customer.deliveryInstructions}&rdquo;
+                </p>
+              </div>
+            )}
+
+            {/* Contact Chef & Kitchen Hotline Card */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#4A2818]/20 shadow-warm-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-[#4A2818] text-white flex items-center justify-center">
+                    <ChefHat className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="font-display text-base uppercase font-bold text-[#1C1917] block leading-tight">
+                      Contact Chef &amp; Kitchen Hotline
+                    </span>
+                    <span className="text-[11px] font-mono text-black/50">Need changes or direct order assistance?</span>
+                  </div>
+                </div>
+                <span className="text-xs font-mono font-bold text-[#4A2818] bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                  90196 31104
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <a
+                  href="tel:9019631104"
+                  className="py-2.5 px-4 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase transition-all flex items-center justify-center space-x-2 shadow-xs"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span>Call Kitchen (+91 90196 31104)</span>
+                </a>
+
+                <a
+                  href={`https://wa.me/919019631104?text=${encodeURIComponent(`Hi Chef! I am inquiring about my Zafiroo Order #${currentOrder.tokenId || currentOrder.id}.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white font-mono text-xs font-bold uppercase transition-all flex items-center justify-center space-x-2 shadow-xs"
+                >
+                  <span>💬</span>
+                  <span>WhatsApp Chef</span>
+                </a>
+              </div>
+            </div>
+
             {/* 1-Click WhatsApp Live Location Button for Delivery Rider */}
             {currentOrder.deliveryMethod === 'delivery' && (
               <div className="pt-4 border-t border-cream-200">

@@ -686,7 +686,22 @@ export default function AdminPortalPage() {
 
                     {order.customer.address && (
                       <div className="mt-2.5 pt-2 border-t border-black/5 text-[11px] font-mono text-black/60">
-                        {order.customer.address}
+                        📍 {order.customer.address}
+                      </div>
+                    )}
+
+                    {/* Customer Cooking / Chef Request Note */}
+                    {order.customer?.deliveryInstructions && (
+                      <div className="mt-2.5 pt-2 border-t border-amber-200 bg-amber-50/95 p-2.5 rounded-xl border border-amber-300">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-xs">👨‍🍳</span>
+                          <span className="font-mono text-[10px] font-black uppercase tracking-wider text-amber-900">
+                            Chef Customization Request:
+                          </span>
+                        </div>
+                        <p className="text-xs font-sans font-bold text-amber-950 mt-1 italic leading-snug">
+                          &ldquo;{order.customer.deliveryInstructions}&rdquo;
+                        </p>
                       </div>
                     )}
 

@@ -18,6 +18,7 @@ import {
   Copy,
   Check,
   ExternalLink,
+  ChefHat,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
@@ -398,6 +399,22 @@ export default function CheckoutModal() {
                   </button>
                 </div>
               )}
+
+              {/* Chef Customization Note (Available for both delivery and pickup) */}
+              <div className="space-y-2 pt-1 bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200/70">
+                <span className="text-xs font-mono uppercase tracking-wider text-amber-950 font-bold flex items-center space-x-1.5">
+                  <ChefHat className="w-3.5 h-3.5 text-[#4A2818]" />
+                  <span>Customization Message for the Chef</span>
+                  <span className="text-[10px] font-normal text-amber-900/60">(Optional)</span>
+                </span>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Extra crispy fries, less sugar in coffee, no ice, extra spicy, separate dip, allergic to nuts..."
+                  value={customer.deliveryInstructions}
+                  onChange={(e) => setCustomer({ ...customer, deliveryInstructions: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl bg-white border border-amber-300/80 text-banhmi-dark text-xs focus:outline-none focus:ring-2 focus:ring-[#4A2818] font-mono resize-none placeholder:text-black/40"
+                />
+              </div>
 
               {/* Payment Method Selector (Razorpay vs Cash) */}
               <div className="space-y-3 pt-1">
