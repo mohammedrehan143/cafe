@@ -103,6 +103,18 @@ export default function CheckoutModal() {
     }
   };
 
+  const resetCheckoutForm = () => {
+    setCustomer({
+      name: '',
+      phone: '',
+      email: '',
+      address: '',
+      unitOrApt: '',
+      deliveryInstructions: '',
+    });
+    setIsProcessingPayment(false);
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -133,6 +145,8 @@ export default function CheckoutModal() {
 
         // If Razorpay SDK is loaded and we have an order ID
         if (typeof window !== 'undefined' && window.Razorpay && orderData.isLive) {
+          const currentCustomerData = { ...customer };
+          const currentMethod = deliveryMethod;
           const options = {
             key: orderData.keyId,
             amount: orderData.amount,
@@ -143,8 +157,8 @@ export default function CheckoutModal() {
             order_id: orderData.orderId,
             handler: async function (response: any) {
               await placeOrder(
-                customer,
-                deliveryMethod,
+                currentCustomerData,
+                currentMethod,
                 0,
                 'Online (Razorpay Verified)',
                 {
@@ -154,7 +168,7 @@ export default function CheckoutModal() {
                 }
               );
               triggerConfetti();
-              setIsProcessingPayment(false);
+              resetCheckoutForm();
             },
             prefill: {
               name: customer.name,
@@ -186,13 +200,13 @@ export default function CheckoutModal() {
           { razorpay_order_id: orderData.orderId, razorpay_payment_id: `pay_${Date.now()}` }
         );
         triggerConfetti();
-        setIsProcessingPayment(false);
+        resetCheckoutForm();
       } catch (err: any) {
         console.error('Payment initialization failed:', err);
         // Fallback to direct checkout
         await placeOrder(customer, deliveryMethod, 0, 'Online (Fallback Direct)');
         triggerConfetti();
-        setIsProcessingPayment(false);
+        resetCheckoutForm();
       }
     } else {
       // 3. CASH ON DELIVERY
@@ -203,6 +217,7 @@ export default function CheckoutModal() {
         deliveryMethod === 'delivery' ? 'Cash on Delivery' : 'Pay at Pickup'
       );
       triggerConfetti();
+      resetCheckoutForm();
     }
   };
 
