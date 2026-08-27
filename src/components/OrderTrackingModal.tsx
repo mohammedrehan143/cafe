@@ -43,7 +43,9 @@ export default function OrderTrackingModal() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(token)}`);
+        const res = await fetch(`/api/orders/${encodeURIComponent(token)}`, {
+          cache: 'no-store',
+        });
         const data = await res.json();
         if (data.success && data.order) {
           if (

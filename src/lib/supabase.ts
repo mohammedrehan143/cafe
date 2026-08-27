@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
+import { Order, OrderStatus, DeliveryMethod } from '@/types/cafe';
 
-// Environment variables (SUPABASE_URL / SUPABASE_ANON_KEY or NEXT_PUBLIC_ fallbacks)
+// Environment variables (private SUPABASE_URL / SUPABASE_ANON_KEY or NEXT_PUBLIC_ fallbacks)
 const supabaseUrl =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -81,6 +82,52 @@ export interface DbOrderRow {
   payment_status?: string;
   razorpay_order_id?: string;
   razorpay_payment_id?: string;
+  rider_name?: string;
+  rider_phone?: string;
   created_at: string;
   updated_at: string;
+}
+
+export function formatDbOrderToOrder(row: any): Order {
+  let resolvedRiderName = row.rider_name;
+  let resolvedRiderPhone = row.rider_phone;
+
+  if (!resolvedRiderName && row.customer_instructions) {
+    const match = String(row.customer_instructions).match(/\[RIDER:\s*(.*?)\s*\|\s*(.*?)\s*\]/);
+    if (match) {
+      resolvedRiderName = match[1];
+      resolvedRiderPhone = match[2];
+    }
+  }
+
+  return {
+    id: row.tracking_code || row.token_id || row.id,
+    tokenId: row.token_id || row.tracking_code || row.id,
+    trackingCode: row.tracking_code || row.id,
+    customerId: row.customer_id,
+    createdAt: row.created_at || new Date().toISOString(),
+    status: (row.status || 'new') as OrderStatus,
+    deliveryMethod: (row.delivery_method || 'delivery') as DeliveryMethod,
+    customer: {
+      name: row.customer_name || 'Valued Customer',
+      phone: row.customer_phone || '',
+      email: row.customer_email || '',
+      address: row.customer_address || '',
+      unitOrApt: row.customer_unit || '',
+      deliveryInstructions: row.customer_instructions || '',
+    },
+    items: Array.isArray(row.items_json) ? row.items_json : [],
+    subtotal: Number(row.subtotal || 0),
+    deliveryFee: Number(row.delivery_fee || 0),
+    tax: Number(row.tax || 0),
+    tip: Number(row.tip || 0),
+    total: Number(row.total || 0),
+    estimatedTime: row.estimated_time || (row.delivery_method === 'delivery' ? '20-30 min' : '10-15 min'),
+    paymentMethod: row.payment_method || 'Online',
+    paymentStatus: row.payment_status || 'completed',
+    razorpayOrderId: row.razorpay_order_id,
+    razorpayPaymentId: row.razorpay_payment_id,
+    riderName: resolvedRiderName,
+    riderPhone: resolvedRiderPhone,
+  };
 }

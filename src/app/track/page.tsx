@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Order } from '@/types/cafe';
 import { INITIAL_ORDERS, CAFE_INFO } from '@/data/cafeData';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
 import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
 
 function TrackerContent() {
@@ -48,7 +48,9 @@ function TrackerContent() {
 
     try {
       // 1. Query API (matches token_id, tracking_code, id, or phone)
-      const res = await fetch(`/api/orders/${encodeURIComponent(query.trim())}`);
+      const res = await fetch(`/api/orders/${encodeURIComponent(query.trim())}`, {
+        cache: 'no-store',
+      });
       const data = await res.json();
 
       if (data.success && data.order) {
@@ -159,17 +161,8 @@ function TrackerContent() {
                 updated.id === trackingKey ||
                 updated.customer_phone === currentOrder.customer.phone)
             ) {
-              setCurrentOrder((prev) => {
-                if (!prev) return null;
-                return {
-                  ...prev,
-                  status: updated.status,
-                  estimatedTime: updated.estimated_time || prev.estimatedTime,
-                  paymentStatus: updated.payment_status || prev.paymentStatus,
-                  riderName: updated.rider_name || prev.riderName,
-                  riderPhone: updated.rider_phone || prev.riderPhone,
-                };
-              });
+              const formatted = formatDbOrderToOrder(updated);
+              setCurrentOrder((prev) => (prev ? { ...prev, ...formatted } : formatted));
             }
           }
         )

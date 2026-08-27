@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { MenuItem, CartItem, Order, OrderStatus, DeliveryMethod } from '@/types/cafe';
 import { INITIAL_ORDERS, MENU_ITEMS, CAFE_INFO } from '@/data/cafeData';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
 
 interface OrderContextType {
   menuItems: MenuItem[];
@@ -63,7 +63,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const refreshMenu = useCallback(async () => {
     try {
       setLoadingMenu(true);
-      const res = await fetch('/api/menu');
+      const res = await fetch('/api/menu', { cache: 'no-store' });
       const data = await res.json();
       if (data.success && Array.isArray(data.menu) && data.menu.length > 0) {
         setMenuItems(data.menu);
@@ -85,7 +85,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const initOrders = async () => {
       try {
-        const res = await fetch('/api/orders');
+        const res = await fetch('/api/orders', { cache: 'no-store' });
         const data = await res.json();
         if (data.success && data.orders && data.orders.length > 0) {
           const fresh = filterOrdersLast10Days(data.orders);
@@ -118,7 +118,99 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     initOrders();
   }, []);
 
-  // Real-time Supabase Subscription for active tracking order
+  // Real-time Supabase Subscription for ALL ORDERS (KDS instant updates on new order without reload)
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
+    const channel = supabase
+      .channel('kds-all-orders-stream')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+        },
+        (payload: any) => {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const newOrder = formatDbOrderToOrder(payload.new);
+            setOrders((prev) => {
+              const exists = prev.some((o) => o.id === newOrder.id || o.tokenId === newOrder.tokenId);
+              if (exists) return prev;
+              const updated = [newOrder, ...prev];
+              try {
+                localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(filterOrdersLast10Days(updated)));
+              } catch {}
+              return updated;
+            });
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedOrder = formatDbOrderToOrder(payload.new);
+            setOrders((prev) => {
+              const updated = prev.map((o) =>
+                o.id === updatedOrder.id || o.tokenId === updatedOrder.tokenId ? { ...o, ...updatedOrder } : o
+              );
+              try {
+                localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(filterOrdersLast10Days(updated)));
+              } catch {}
+              return updated;
+            });
+
+            setActiveTrackingOrder((prev) => {
+              if (!prev) return null;
+              if (prev.id === updatedOrder.id || prev.tokenId === updatedOrder.tokenId) {
+                return { ...prev, ...updatedOrder };
+              }
+              return prev;
+            });
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const deletedId = payload.old.id || payload.old.tracking_code || payload.old.token_id;
+            setOrders((prev) => {
+              const updated = prev.filter((o) => o.id !== deletedId && o.tokenId !== deletedId);
+              try {
+                localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(filterOrdersLast10Days(updated)));
+              } catch {}
+              return updated;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Background Auto-Sync Heartbeat (Every 2.5s) to guarantee instantaneous KDS sync
+  useEffect(() => {
+    const syncOrdersHeartbeat = async () => {
+      try {
+        const res = await fetch('/api/orders', { cache: 'no-store' });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.orders)) {
+          const fresh = filterOrdersLast10Days(data.orders);
+          setOrders((prev) => {
+            const prevFingerprint = prev.map((o) => `${o.id}:${o.status}:${o.riderName || ''}`).join('|');
+            const freshFingerprint = fresh.map((o) => `${o.id}:${o.status}:${o.riderName || ''}`).join('|');
+            if (prevFingerprint !== freshFingerprint) {
+              try {
+                localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(fresh));
+              } catch {}
+              return fresh;
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    };
+
+    const interval = setInterval(syncOrdersHeartbeat, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Real-time Supabase Subscription specifically for active tracking order
   useEffect(() => {
     if (!activeTrackingOrder || !isSupabaseConfigured) {
       return;
@@ -142,20 +234,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
               updatedRow.token_id === activeTrackingOrder.tokenId ||
               updatedRow.id === activeTrackingOrder.id)
           ) {
-            setActiveTrackingOrder((prev) => {
-              if (!prev) return null;
-              return {
-                ...prev,
-                status: updatedRow.status,
-                estimatedTime: updatedRow.estimated_time || prev.estimatedTime,
-                paymentStatus: updatedRow.payment_status || prev.paymentStatus,
-              };
-            });
-
+            const parsed = formatDbOrderToOrder(updatedRow);
+            setActiveTrackingOrder((prev) => (prev ? { ...prev, ...parsed } : parsed));
             setOrders((prevList) =>
               prevList.map((o) =>
-                o.id === activeTrackingOrder.id || o.tokenId === activeTrackingOrder.tokenId
-                  ? { ...o, status: updatedRow.status, estimatedTime: updatedRow.estimated_time || o.estimatedTime }
+                o.id === parsed.id || o.tokenId === parsed.tokenId
+                  ? { ...o, ...parsed }
                   : o
               )
             );
@@ -167,7 +251,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeTrackingOrder]);
+  }, [activeTrackingOrder?.id, activeTrackingOrder?.tokenId]);
 
   // Listen to storage events across tabs
   useEffect(() => {

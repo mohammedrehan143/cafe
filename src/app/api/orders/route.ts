@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
 import { Order } from '@/types/cafe';
 import { INITIAL_ORDERS } from '@/data/cafeData';
 import { checkRateLimit, validateCustomer, validateOrderAmounts, sanitizeString } from '@/lib/security';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 // In-memory bounded cache for high-speed fallback under heavy load or offline development
 const MAX_CACHE_SIZE = 1000;
@@ -40,56 +43,23 @@ export async function GET(req: NextRequest) {
         .limit(100);
 
       if (!error && data && data.length > 0) {
-        const formatted: Order[] = data.map((row) => {
-          let resolvedRiderName = row.rider_name;
-          let resolvedRiderPhone = row.rider_phone;
-
-          if (!resolvedRiderName && row.customer_instructions) {
-            const match = row.customer_instructions.match(/\[RIDER:\s*(.*?)\s*\|\s*(.*?)\s*\]/);
-            if (match) {
-              resolvedRiderName = match[1];
-              resolvedRiderPhone = match[2];
-            }
-          }
-
-          return {
-            id: row.tracking_code || row.token_id || row.id,
-            tokenId: row.token_id || row.tracking_code || row.id,
-            trackingCode: row.tracking_code,
-            customerId: row.customer_id,
-            createdAt: row.created_at,
-            status: row.status as any,
-            deliveryMethod: row.delivery_method as any,
-            customer: {
-              name: row.customer_name,
-              phone: row.customer_phone,
-              email: row.customer_email,
-              address: row.customer_address,
-              unitOrApt: row.customer_unit,
-              deliveryInstructions: row.customer_instructions,
-            },
-            items: Array.isArray(row.items_json) ? row.items_json : [],
-            subtotal: Number(row.subtotal),
-            deliveryFee: Number(row.delivery_fee),
-            tax: Number(row.tax),
-            tip: Number(row.tip),
-            total: Number(row.total),
-            estimatedTime: row.estimated_time,
-            paymentMethod: row.payment_method,
-            paymentStatus: row.payment_status as any,
-            razorpayOrderId: row.razorpay_order_id,
-            razorpayPaymentId: row.razorpay_payment_id,
-            riderName: resolvedRiderName,
-            riderPhone: resolvedRiderPhone,
-          };
-        });
-        return NextResponse.json({ success: true, orders: formatted });
+        const formatted: Order[] = data.map((row) => formatDbOrderToOrder(row));
+        return NextResponse.json(
+          { success: true, orders: formatted },
+          { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+        );
       }
     }
 
-    return NextResponse.json({ success: true, orders: localOrdersCache });
+    return NextResponse.json(
+      { success: true, orders: localOrdersCache },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (err: any) {
-    return NextResponse.json({ success: true, orders: localOrdersCache, warning: err.message });
+    return NextResponse.json(
+      { success: true, orders: localOrdersCache, warning: err.message },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   }
 }
 

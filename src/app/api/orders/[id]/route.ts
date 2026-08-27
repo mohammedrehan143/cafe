@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
 import { INITIAL_ORDERS } from '@/data/cafeData';
 import { Order, OrderStatus } from '@/types/cafe';
 import { checkRateLimit, sanitizeString } from '@/lib/security';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const limit = checkRateLimit(req, 60, 60);
+  const limit = checkRateLimit(req, 120, 60);
   if (!limit.allowed) {
     return NextResponse.json(
       { success: false, error: 'Too many lookup requests' },
-      { status: 429 }
+      { status: 429, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
   }
 
@@ -21,7 +24,10 @@ export async function GET(
     const lookupId = sanitizeString(decodeURIComponent(id).trim().toUpperCase(), 40);
 
     if (!lookupId) {
-      return NextResponse.json({ success: false, error: 'Tracking ID or Token is required' }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: 'Tracking ID or Token is required' },
+        { status: 400, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+      );
     }
 
     // 1. Try Supabase lookup (matches token_id, tracking_code, id, or phone)
@@ -34,49 +40,11 @@ export async function GET(
         .maybeSingle();
 
       if (!error && data) {
-        let resolvedRiderName = data.rider_name;
-        let resolvedRiderPhone = data.rider_phone;
-
-        if (!resolvedRiderName && data.customer_instructions) {
-          const match = data.customer_instructions.match(/\[RIDER:\s*(.*?)\s*\|\s*(.*?)\s*\]/);
-          if (match) {
-            resolvedRiderName = match[1];
-            resolvedRiderPhone = match[2];
-          }
-        }
-
-        const order: Order = {
-          id: data.tracking_code || data.token_id || data.id,
-          tokenId: data.token_id || data.tracking_code || data.id,
-          trackingCode: data.tracking_code,
-          customerId: data.customer_id,
-          createdAt: data.created_at,
-          status: data.status as any,
-          deliveryMethod: data.delivery_method as any,
-          customer: {
-            name: data.customer_name,
-            phone: data.customer_phone,
-            email: data.customer_email,
-            address: data.customer_address,
-            unitOrApt: data.customer_unit,
-            deliveryInstructions: data.customer_instructions,
-          },
-          items: Array.isArray(data.items_json) ? data.items_json : [],
-          subtotal: Number(data.subtotal),
-          deliveryFee: Number(data.delivery_fee),
-          tax: Number(data.tax),
-          tip: Number(data.tip),
-          total: Number(data.total),
-          estimatedTime: data.estimated_time,
-          paymentMethod: data.payment_method,
-          paymentStatus: data.payment_status as any,
-          razorpayOrderId: data.razorpay_order_id,
-          razorpayPaymentId: data.razorpay_payment_id,
-          riderName: resolvedRiderName,
-          riderPhone: resolvedRiderPhone,
-        };
-
-        return NextResponse.json({ success: true, order });
+        const order: Order = formatDbOrderToOrder(data);
+        return NextResponse.json(
+          { success: true, order },
+          { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+        );
       }
     }
 
@@ -90,12 +58,21 @@ export async function GET(
     );
 
     if (matched) {
-      return NextResponse.json({ success: true, order: matched });
+      return NextResponse.json(
+        { success: true, order: matched },
+        { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+      );
     }
 
-    return NextResponse.json({ success: false, error: 'Order not found' }, { status: 404 });
+    return NextResponse.json(
+      { success: false, error: 'Order not found' },
+      { status: 404, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message || 'Lookup failed' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: err.message || 'Lookup failed' },
+      { status: 500, headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   }
 }
 
