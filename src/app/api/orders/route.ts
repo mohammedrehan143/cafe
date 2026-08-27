@@ -19,8 +19,8 @@ function purgeOrdersOlderThan10Days(ordersList: Order[]): Order[] {
 }
 
 export async function GET(req: NextRequest) {
-  // Rate limiting protection
-  const limit = checkRateLimit(req, 60, 60);
+  // Rate limiting protection (Generous for live KDS background heartbeat polling)
+  const limit = checkRateLimit(req, 600, 60, 'orders_get');
   if (!limit.allowed) {
     return NextResponse.json(
       { success: false, error: 'Rate limit exceeded. Please try again in a moment.' },
@@ -64,11 +64,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Rate limiting protection against order spam bots
-  const limit = checkRateLimit(req, 20, 60);
+  // Rate limiting protection for order placement (generous to allow rapid consecutive customer orders)
+  const limit = checkRateLimit(req, 200, 60, 'orders_post');
   if (!limit.allowed) {
     return NextResponse.json(
-      { success: false, error: 'Too many order requests. Please wait a minute.' },
+      { success: false, error: 'Too many order requests. Please wait a moment.' },
       { status: 429, headers: { 'Retry-After': String(limit.resetIn) } }
     );
   }

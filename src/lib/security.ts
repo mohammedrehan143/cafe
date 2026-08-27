@@ -22,28 +22,31 @@ if (typeof setInterval !== 'undefined') {
 }
 
 /**
- * Rate Limiter middleware
+ * Rate Limiter middleware with route/bucket isolation
  * @param req NextRequest
  * @param maxRequests Maximum allowed requests in the window
  * @param windowSeconds Window duration in seconds
+ * @param bucket Identifier for the endpoint category (e.g. 'orders_get', 'orders_post')
  */
 export function checkRateLimit(
   req: NextRequest,
-  maxRequests = 40,
-  windowSeconds = 60
+  maxRequests = 100,
+  windowSeconds = 60,
+  bucket = 'default'
 ): { allowed: boolean; remaining: number; resetIn: number } {
   // Extract client IP from standard proxy headers
   const forwarded = req.headers.get('x-forwarded-for');
   const realIp = req.headers.get('x-real-ip');
   const ip = forwarded ? forwarded.split(',')[0].trim() : realIp || '127.0.0.1';
+  const key = `${bucket}:${ip}`;
 
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
 
-  const existing = rateLimitStore.get(ip);
+  const existing = rateLimitStore.get(key);
 
   if (!existing || existing.resetAt < now) {
-    rateLimitStore.set(ip, {
+    rateLimitStore.set(key, {
       count: 1,
       resetAt: now + windowMs,
     });
