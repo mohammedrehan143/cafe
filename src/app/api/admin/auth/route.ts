@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminKey, saveUserAdminKey, getSupabaseAdminKeys, UNIVERSAL_MASTER_KEY } from '@/lib/adminAuth';
-import { checkRateLimit } from '@/lib/security';
+import { isAuthThrottled, recordFailedAuthAttempt, clearFailedAuthAttempts } from '@/lib/security';
 
 export async function POST(req: NextRequest) {
-  // Rate limiting to protect against brute force
-  const limit = checkRateLimit(req, 20, 60);
-  if (!limit.allowed) {
+  // Check if current IP has exceeded maximum WRONG attempts
+  const throttle = isAuthThrottled(req, 25, 60);
+  if (throttle.throttled) {
     return NextResponse.json(
-      { success: false, error: 'Too many authentication attempts. Please wait 1 minute.' },
-      { status: 429, headers: { 'Retry-After': String(limit.resetIn) } }
+      { success: false, error: 'Too many incorrect PIN attempts. Please wait 1 minute.' },
+      { status: 429, headers: { 'Retry-After': String(throttle.resetIn) } }
     );
   }
 
@@ -26,11 +26,16 @@ export async function POST(req: NextRequest) {
     const { valid, isUniversal } = await verifyAdminKey(key);
 
     if (!valid) {
+      // ONLY increment rate limit counter for failed attempts
+      recordFailedAuthAttempt(req);
       return NextResponse.json(
         { success: false, error: 'Invalid Admin Key or Master PIN.' },
         { status: 401 }
       );
     }
+
+    // CORRECT PIN: Clear any prior failed attempts so all kitchen devices can authenticate without hindrance
+    clearFailedAuthAttempts(req);
 
     // Generate a simple auth token
     const token = Buffer.from(`auth_${Date.now()}_${isUniversal ? 'universal' : 'user'}`).toString('base64');

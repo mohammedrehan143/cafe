@@ -53,18 +53,18 @@ body {
   background: #7F685C;
 }
 
-/* Editorial Glass & Surface Utilities */
+/* Editorial Glass & Surface Utilities (Lightweight 60fps blur) */
 .glass-panel {
-  background: rgba(252, 250, 246, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(252, 250, 246, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(217, 195, 165, 0.35);
 }
 
 .glass-panel-dark {
-  background: rgba(29, 21, 17, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(29, 21, 17, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -92,19 +92,19 @@ canvas {
 /* High-Performance Smooth Rendering & GPU Acceleration */
 .smooth-scroll-container {
   -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
   overscroll-behavior-x: contain;
 }
 
 /* Off-screen rendering boost */
 .optimize-render {
   content-visibility: auto;
-  contain-intrinsic-size: 1px 500px;
+  contain-intrinsic-size: 1px 400px;
 }
 
 /* Force GPU Layer Creation for jitter-free 60fps animations */
 .transform-gpu {
-  transform: translateZ(0);
+  transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
   perspective: 1000px;
+  will-change: transform;
 }

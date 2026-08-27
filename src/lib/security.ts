@@ -67,6 +67,58 @@ export function checkRateLimit(
   };
 }
 
+// Failed Auth Rate Limiting (Tracks ONLY failed/incorrect attempts so valid logins on multiple devices are never throttled)
+const failedAuthStore = new Map<string, RateLimitRecord>();
+
+export function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  const realIp = req.headers.get('x-real-ip');
+  return forwarded ? forwarded.split(',')[0].trim() : realIp || '127.0.0.1';
+}
+
+export function isAuthThrottled(
+  req: NextRequest,
+  maxFailed = 25,
+  windowSeconds = 60
+): { throttled: boolean; resetIn: number } {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const existing = failedAuthStore.get(ip);
+
+  if (!existing || existing.resetAt < now) {
+    return { throttled: false, resetIn: 0 };
+  }
+
+  if (existing.count >= maxFailed) {
+    return {
+      throttled: true,
+      resetIn: Math.ceil((existing.resetAt - now) / 1000),
+    };
+  }
+
+  return { throttled: false, resetIn: 0 };
+}
+
+export function recordFailedAuthAttempt(req: NextRequest, windowSeconds = 60): void {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const existing = failedAuthStore.get(ip);
+
+  if (!existing || existing.resetAt < now) {
+    failedAuthStore.set(ip, {
+      count: 1,
+      resetAt: now + windowSeconds * 1000,
+    });
+  } else {
+    existing.count += 1;
+  }
+}
+
+export function clearFailedAuthAttempts(req: NextRequest): void {
+  const ip = getClientIp(req);
+  failedAuthStore.delete(ip);
+}
+
 /**
  * Sanitize string inputs to prevent XSS and injection attacks
  */

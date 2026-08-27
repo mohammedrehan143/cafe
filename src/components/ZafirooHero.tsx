@@ -50,11 +50,20 @@ export default function ZafirooHero() {
 
   const currentScene = heroVideoScenes[activeVideoIndex];
 
-  // Automatic Smooth Slideshow Transition Timer (cycles every 7 seconds)
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current && videoRef.current.src !== currentScene.url) {
+      videoRef.current.src = currentScene.url;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [currentScene.url]);
+
+  // Automatic Smooth Slideshow Transition Timer (cycles every 8 seconds)
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveVideoIndex((prev) => (prev + 1) % heroVideoScenes.length);
-    }, 7000);
+    }, 8000);
 
     return () => clearInterval(interval);
   }, [heroVideoScenes.length]);
@@ -76,7 +85,7 @@ export default function ZafirooHero() {
       className="relative min-h-[100svh] w-full pt-4 sm:pt-6 pb-8 sm:pb-12 flex flex-col justify-between overflow-hidden select-none text-white cursor-pointer will-change-transform"
       title="Click anywhere to change video"
     >
-      {/* 1. CINEMATIC FULL-SCREEN BACKGROUND VIDEO (Smooth single-player with crossfade) */}
+      {/* 1. CINEMATIC FULL-SCREEN BACKGROUND VIDEO (Hardware-accelerated single player) */}
       <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0 transform-gpu">
         {/* Poster image background */}
         <div className="absolute inset-0 w-full h-full">
@@ -85,19 +94,20 @@ export default function ZafirooHero() {
             alt={currentScene.foodName}
             fill
             priority
+            sizes="100vw"
             className="object-cover opacity-80 transition-opacity duration-700"
           />
         </div>
 
-        {/* Lightweight Single Active Video Player */}
+        {/* Persistent Hardware Video Player */}
         <video
-          key={currentScene.id}
+          ref={videoRef}
           autoPlay
           loop
           muted
           playsInline
           poster={currentScene.poster}
-          className="absolute inset-0 w-full h-full object-cover animate-fade-in transition-opacity duration-700"
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none"
         >
           <source src={currentScene.url} type="video/mp4" />
         </video>
