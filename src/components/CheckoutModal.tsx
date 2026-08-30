@@ -705,15 +705,22 @@ export default function CheckoutModal() {
 
                     {/* Suggestions List */}
                     {suggestions.length > 0 && (
-                      <div className="space-y-1.5 bg-cream-50 p-2.5 rounded-2xl border border-cream-300 max-h-44 overflow-y-auto">
+                      <div className="space-y-1.5 bg-cream-50 p-2.5 rounded-2xl border border-cream-300 max-h-52 overflow-y-auto">
                         {suggestions.map((item, idx) => (
                           <div
                             key={idx}
                             onClick={() => handleSelectSuggestion(item)}
-                            className="p-2.5 rounded-xl bg-white hover:bg-amber-100/70 border border-cream-200 text-xs font-mono text-banhmi-dark cursor-pointer transition-colors flex items-start space-x-2 shadow-xs"
+                            className="p-3 rounded-xl bg-white hover:bg-amber-100/90 border border-cream-200 text-xs font-mono text-banhmi-dark cursor-pointer transition-all flex items-start space-x-2.5 shadow-xs"
                           >
-                            <MapPin className="w-3.5 h-3.5 text-banhmi-red flex-shrink-0 mt-0.5" />
-                            <span className="line-clamp-2">{item.displayName}</span>
+                            <MapPin className="w-4 h-4 text-banhmi-red flex-shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-banhmi-dark text-xs truncate">
+                                {item.name || item.street}
+                              </div>
+                              <div className="text-[11px] text-black/60 font-sans line-clamp-1">
+                                {item.displayName}
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>

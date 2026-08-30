@@ -1,7 +1,6 @@
 /**
  * Pinpoint-Accurate Geolocation & Reverse Geocoding Utility
- * Uses hardware GPS (High Accuracy) with building-level zoom (zoom=18), multi-provider reverse-geocoding,
- * and live address search autocomplete.
+ * High-accuracy GPS with zoom=18 building-level reverse geocoding + Photon/Nominatim landmark and POI search engine.
  */
 
 export interface GeocodedAddressResult {
@@ -16,8 +15,8 @@ export interface GeocodedAddressResult {
 
 export interface AddressSuggestion {
   displayName: string;
+  name: string;
   street: string;
-  neighbourhood: string;
   city: string;
   postcode: string;
   lat: number;
@@ -92,7 +91,6 @@ export async function reverseGeocodeCoordinates(lat: number, lng: number): Promi
       const data = await res.json();
       const parts: string[] = [];
 
-      const thoroughfare = data.localityInfo?.administrative?.[0]?.name || '';
       const locality = data.locality || data.city || '';
       const district = data.principalSubdivision || '';
       const postcode = data.postcode || '';
@@ -125,51 +123,108 @@ export async function reverseGeocodeCoordinates(lat: number, lng: number): Promi
 }
 
 /**
- * Searches address / street / locality query with instant live autocomplete
+ * Searches landmarks, POIs (points of interest), malls, apartments, streets, and areas with instant live autocomplete
  */
 export async function searchAddressQuery(query: string): Promise<AddressSuggestion[]> {
   if (!query || query.trim().length < 2) return [];
+  const cleanQ = query.trim();
+  const suggestions: AddressSuggestion[] = [];
+  const seenNames = new Set<string>();
 
+  // 1. Primary Landmark Engine: Photon API by Komoot (indexes all POIs, landmarks, venues, cafes, and roads worldwide)
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query.trim())}&addressdetails=1&limit=5&countrycodes=in`;
-    const res = await fetch(url, {
-      headers: {
-        'Accept-Language': 'en',
-        'User-Agent': 'ZafirooCafeApp/1.0',
-      },
-    });
-
+    const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(cleanQ)}&limit=8&lat=12.9716&lon=77.5946`;
+    const res = await fetch(photonUrl);
     if (res.ok) {
-      const list = await res.json();
-      return list.map((item: any) => {
-        const addr = item.address || {};
-        const road = addr.road || addr.street || addr.pedestrian || addr.residential || '';
-        const houseNumber = addr.house_number || addr.building || '';
-        const neighbourhood = addr.neighbourhood || addr.suburb || addr.colony || addr.subdistrict || '';
-        const city = addr.city || addr.town || addr.village || addr.county || 'Bengaluru';
-        const postcode = addr.postcode || '';
+      const data = await res.json();
+      if (data.features && Array.isArray(data.features)) {
+        for (const f of data.features) {
+          const props = f.properties || {};
+          const geom = f.geometry || {};
+          const [lon, lat] = geom.coordinates || [0, 0];
 
-        const lineParts = [];
-        if (houseNumber && road) lineParts.push(`${houseNumber}, ${road}`);
-        else if (road) lineParts.push(road);
-        if (neighbourhood && !lineParts.includes(neighbourhood)) lineParts.push(neighbourhood);
-        if (city && !lineParts.includes(city)) lineParts.push(city);
-        if (postcode) lineParts.push(postcode);
+          const name = props.name || '';
+          const street = props.street || '';
+          const housenumber = props.housenumber || '';
+          const district = props.district || props.suburb || props.locality || '';
+          const city = props.city || props.county || 'Bengaluru';
+          const postcode = props.postcode || '';
 
-        return {
-          displayName: lineParts.length > 0 ? lineParts.join(', ') : item.display_name,
-          street: road || neighbourhood || item.display_name.split(',')[0],
-          neighbourhood,
-          city,
-          postcode,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon),
-        };
-      });
+          const parts: string[] = [];
+          if (name) parts.push(name);
+          if (housenumber && street) parts.push(`${housenumber} ${street}`);
+          else if (street && street !== name) parts.push(street);
+          if (district && district !== name && !parts.includes(district)) parts.push(district);
+          if (city && city !== name && !parts.includes(city)) parts.push(city);
+          if (postcode) parts.push(postcode);
+
+          const displayName = parts.join(', ');
+          if (displayName && !seenNames.has(displayName.toLowerCase())) {
+            seenNames.add(displayName.toLowerCase());
+            suggestions.push({
+              displayName,
+              name: name || street || 'Landmark',
+              street: street || district || name,
+              city,
+              postcode,
+              lat,
+              lng: lon,
+            });
+          }
+        }
+      }
     }
   } catch {}
 
-  return [];
+  // 2. Secondary Engine: OpenStreetMap Nominatim Free-Form Search
+  if (suggestions.length < 5) {
+    try {
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(cleanQ)}&addressdetails=1&limit=6`;
+      const res = await fetch(nominatimUrl, {
+        headers: {
+          'Accept-Language': 'en',
+          'User-Agent': 'ZafirooCafeApp/1.0',
+        },
+      });
+
+      if (res.ok) {
+        const list = await res.json();
+        for (const item of list) {
+          const addr = item.address || {};
+          const road = addr.road || addr.street || addr.pedestrian || addr.amenity || addr.shop || '';
+          const houseNumber = addr.house_number || addr.building || '';
+          const neighbourhood = addr.neighbourhood || addr.suburb || addr.colony || addr.subdistrict || '';
+          const city = addr.city || addr.town || addr.village || addr.county || 'Bengaluru';
+          const postcode = addr.postcode || '';
+          const landmarkName = item.name || item.display_name.split(',')[0];
+
+          const lineParts: string[] = [];
+          if (landmarkName) lineParts.push(landmarkName);
+          if (houseNumber && road) lineParts.push(`${houseNumber}, ${road}`);
+          else if (road && road !== landmarkName) lineParts.push(road);
+          if (neighbourhood && !lineParts.includes(neighbourhood)) lineParts.push(neighbourhood);
+          if (city && !lineParts.includes(city)) lineParts.push(city);
+          if (postcode) lineParts.push(postcode);
+
+          const displayName = lineParts.length > 0 ? lineParts.join(', ') : item.display_name;
+          if (displayName && !seenNames.has(displayName.toLowerCase())) {
+            seenNames.add(displayName.toLowerCase());
+            suggestions.push({
+              displayName,
+              name: landmarkName || 'Location',
+              street: road || neighbourhood || landmarkName,
+              city,
+              postcode,
+              lat: parseFloat(item.lat),
+              lng: parseFloat(item.lon),
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return suggestions.slice(0, 8);
 }
 
 /**
