@@ -22,6 +22,8 @@ import {
   Navigation,
   RefreshCw,
   AlertCircle,
+  HelpCircle,
+  Compass,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
@@ -49,10 +51,11 @@ export default function CheckoutModal() {
   const [paymentChoice, setPaymentChoice] = useState<'cashfree' | 'cod'>('cashfree');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  // GPS Auto-Location State
+  // GPS Auto-Location State & Permission Pop-up Modal
   const [isLocating, setIsLocating] = useState(false);
   const [locationSuccess, setLocationSuccess] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [showLocationHelpModal, setShowLocationHelpModal] = useState(false);
 
   const [customer, setCustomer] = useState({
     name: '',
@@ -80,15 +83,18 @@ export default function CheckoutModal() {
           unitOrApt: res.unitOrApt || prev.unitOrApt,
         }));
         setLocationSuccess('Current GPS address auto-filled!');
+        setShowLocationHelpModal(false);
         setTimeout(() => setLocationSuccess(null), 3500);
       } else {
-        setLocationError(res.error || 'Could not fetch current location. Please type address manually.');
-        setTimeout(() => setLocationError(null), 4500);
+        setLocationError(res.error || 'Could not fetch location.');
+        // Show permission unblock helper popup if denied
+        if (res.error && res.error.includes('permission')) {
+          setShowLocationHelpModal(true);
+        }
       }
     } catch {
       setIsLocating(false);
-      setLocationError('Location request failed. Please type address manually.');
-      setTimeout(() => setLocationError(null), 4500);
+      setLocationError('Location request interrupted. Please enter street address manually.');
     }
   };
 
@@ -120,9 +126,7 @@ export default function CheckoutModal() {
         origin: { y: 0.6 },
         colors: ['#4A2818', '#FFFFFF', '#7B4426', '#FFF8F0'],
       });
-    } catch {
-      // fallback
-    }
+    } catch {}
   };
 
   const getFormattedCustomer = () => {
@@ -204,7 +208,6 @@ export default function CheckoutModal() {
 
         const orderData = await orderRes.json();
 
-        // If Cashfree SDK is loaded and we have a live payment session
         if (typeof window !== 'undefined' && window.Cashfree && orderData.paymentSessionId && orderData.isLive) {
           const cashfree = window.Cashfree({
             mode: orderData.environment === 'production' ? 'production' : 'sandbox',
@@ -222,7 +225,6 @@ export default function CheckoutModal() {
                 return;
               }
 
-              // Verify payment
               try {
                 await fetch('/api/cashfree/verify', {
                   method: 'POST',
@@ -248,7 +250,6 @@ export default function CheckoutModal() {
           return;
         }
 
-        // 2. Simulated Cashfree Sandbox Payment (Seamless fallback)
         await new Promise((resolve) => setTimeout(resolve, 800));
         await placeOrder(
           currentCustomerData,
@@ -269,7 +270,6 @@ export default function CheckoutModal() {
         resetCheckoutForm();
       }
     } else {
-      // 3. CASH ON DELIVERY
       await placeOrder(
         currentCustomerData,
         currentMethod,
@@ -309,7 +309,7 @@ export default function CheckoutModal() {
                     Secure Checkout
                   </span>
                   <span className="text-[11px] font-mono text-espresso-600 hidden xs:inline">
-                    UPI • Razorpay • Cards
+                    UPI • Cashfree • Cards
                   </span>
                 </div>
                 <h3 className="font-display text-xl sm:text-2xl uppercase font-black text-[#1C1917] tracking-tight">
@@ -429,7 +429,7 @@ export default function CheckoutModal() {
                       {isLocating ? (
                         <>
                           <RefreshCw className="w-3 h-3 text-[#4A2818] animate-spin" />
-                          <span>Detecting Location...</span>
+                          <span>Detecting GPS...</span>
                         </>
                       ) : (
                         <>
@@ -455,10 +455,21 @@ export default function CheckoutModal() {
                     <motion.div
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-mono flex items-center space-x-1.5"
+                      className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-mono space-y-1.5"
                     >
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-                      <span>{locationError}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-1.5 font-bold">
+                          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                          <span>{locationError}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowLocationHelpModal(true)}
+                          className="px-2 py-0.5 rounded-md bg-rose-200 hover:bg-rose-300 text-rose-900 text-[10px] font-bold uppercase transition-colors cursor-pointer"
+                        >
+                          How to Allow?
+                        </button>
+                      </div>
                     </motion.div>
                   )}
 
@@ -605,6 +616,63 @@ export default function CheckoutModal() {
               </button>
             </form>
           </motion.div>
+
+          {/* LOCATION PERMISSION HELPER POPUP MODAL */}
+          <AnimatePresence>
+            {showLocationHelpModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                  className="w-full max-w-sm bg-white rounded-3xl p-6 border-2 border-amber-300 shadow-warm-2xl text-center space-y-4"
+                >
+                  <div className="p-3.5 rounded-full bg-amber-100 text-[#4A2818] inline-block ring-4 ring-amber-200">
+                    <Compass className="w-8 h-8 text-[#4A2818] animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="font-display text-xl uppercase font-black text-banhmi-dark">
+                      Enable Location in Browser
+                    </h4>
+                    <p className="text-xs text-banhmi-dark/70 font-sans mt-1">
+                      Your browser has location permissions blocked for this website. Follow these 2 steps:
+                    </p>
+                  </div>
+
+                  <div className="text-left bg-[#FFF8F0] p-3.5 rounded-2xl border border-banhmi-gold/40 text-xs font-mono space-y-2 text-banhmi-dark">
+                    <div className="flex items-start space-x-2">
+                      <span className="w-5 h-5 rounded-full bg-[#4A2818] text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                      <span>Click the <strong>🔒 Lock or Site Settings icon</strong> at the top-left of the address bar.</span>
+                    </div>
+                    <div className="flex items-start space-x-2">
+                      <span className="w-5 h-5 rounded-full bg-[#4A2818] text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                      <span>Change <strong>Location</strong> to <strong>Allow</strong>.</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowLocationHelpModal(false)}
+                      className="flex-1 py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-banhmi-dark font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
+                    >
+                      Enter Manually
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLocationHelpModal(false);
+                        handleUseCurrentLocation();
+                      }}
+                      className="flex-1 py-2.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase transition-colors shadow-sm cursor-pointer"
+                    >
+                      Retry GPS
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </AnimatePresence>
