@@ -22,14 +22,14 @@ import {
   Navigation,
   RefreshCw,
   AlertCircle,
-  HelpCircle,
+  Search,
   Compass,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
 import { CAFE_INFO } from '@/data/cafeData';
 import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
-import { getCurrentLocationAddress } from '@/lib/location';
+import { getCurrentLocationAddress, searchAddressQuery, AddressSuggestion } from '@/lib/location';
 import Link from 'next/link';
 
 declare global {
@@ -37,6 +37,15 @@ declare global {
     Cashfree: any;
   }
 }
+
+const POPULAR_AREAS = [
+  '100 Feet Rd, Indiranagar, Bengaluru - 560038',
+  '12th Main Rd, HAL 2nd Stage, Indiranagar - 560008',
+  '4th Block, 80 Feet Rd, Koramangala - 560034',
+  '27th Main Rd, Sector 1, HSR Layout - 560102',
+  'Brigade Road, Ashok Nagar, Bengaluru - 560001',
+  'ITPL Main Rd, Whitefield, Bengaluru - 560066',
+];
 
 export default function CheckoutModal() {
   const {
@@ -51,11 +60,16 @@ export default function CheckoutModal() {
   const [paymentChoice, setPaymentChoice] = useState<'cashfree' | 'cod'>('cashfree');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
-  // GPS Auto-Location State & Permission Pop-up Modal
+  // Location Picker & GPS State
   const [isLocating, setIsLocating] = useState(false);
   const [locationSuccess, setLocationSuccess] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [showLocationHelpModal, setShowLocationHelpModal] = useState(false);
+  const [showLocationPickerModal, setShowLocationPickerModal] = useState(false);
+
+  // Search Address State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
 
   const [customer, setCustomer] = useState({
     name: '',
@@ -66,6 +80,23 @@ export default function CheckoutModal() {
     courierNotes: '',
     chefNotes: '',
   });
+
+  // Debounced search for locality / street autocomplete
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      const results = await searchAddressQuery(searchQuery);
+      setSuggestions(results);
+      setIsSearching(false);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const handleUseCurrentLocation = async () => {
     setIsLocating(true);
@@ -83,19 +114,33 @@ export default function CheckoutModal() {
           unitOrApt: res.unitOrApt || prev.unitOrApt,
         }));
         setLocationSuccess('Current GPS address auto-filled!');
-        setShowLocationHelpModal(false);
+        setShowLocationPickerModal(false);
         setTimeout(() => setLocationSuccess(null), 3500);
       } else {
-        setLocationError(res.error || 'Could not fetch location.');
-        // Show permission unblock helper popup if denied
-        if (res.error && res.error.includes('permission')) {
-          setShowLocationHelpModal(true);
-        }
+        setLocationError(res.error || 'GPS signal unavailable on this device.');
+        // Automatically open search & location picker modal so user can pick in 1 tap
+        setShowLocationPickerModal(true);
       }
     } catch {
       setIsLocating(false);
-      setLocationError('Location request interrupted. Please enter street address manually.');
+      setShowLocationPickerModal(true);
     }
+  };
+
+  const handleSelectSuggestion = (item: AddressSuggestion | string) => {
+    if (typeof item === 'string') {
+      setCustomer((prev) => ({ ...prev, address: item }));
+    } else {
+      setCustomer((prev) => ({
+        ...prev,
+        address: item.displayName,
+      }));
+    }
+    setLocationSuccess('Delivery address selected!');
+    setShowLocationPickerModal(false);
+    setSearchQuery('');
+    setSuggestions([]);
+    setTimeout(() => setLocationSuccess(null), 3000);
   };
 
   // Dynamically load Cashfree JS SDK v3
@@ -422,21 +467,11 @@ export default function CheckoutModal() {
 
                     <button
                       type="button"
-                      onClick={handleUseCurrentLocation}
-                      disabled={isLocating}
-                      className="px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100/90 border border-amber-300 text-[#4A2818] font-mono text-[11px] font-bold flex items-center space-x-1.5 transition-all active:scale-95 shadow-xs cursor-pointer disabled:opacity-60"
+                      onClick={() => setShowLocationPickerModal(true)}
+                      className="px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-[#4A2818] font-mono text-[11px] font-bold flex items-center space-x-1.5 transition-all active:scale-95 shadow-xs cursor-pointer"
                     >
-                      {isLocating ? (
-                        <>
-                          <RefreshCw className="w-3 h-3 text-[#4A2818] animate-spin" />
-                          <span>Detecting GPS...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Navigation className="w-3 h-3 text-emerald-600" />
-                          <span>Use Current Location</span>
-                        </>
-                      )}
+                      <Navigation className="w-3 h-3 text-emerald-600" />
+                      <span>Auto-Detect / Search Area</span>
                     </button>
                   </div>
 
@@ -448,28 +483,6 @@ export default function CheckoutModal() {
                     >
                       <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
                       <span>{locationSuccess}</span>
-                    </motion.div>
-                  )}
-
-                  {locationError && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-mono space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-1.5 font-bold">
-                          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                          <span>{locationError}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowLocationHelpModal(true)}
-                          className="px-2 py-0.5 rounded-md bg-rose-200 hover:bg-rose-300 text-rose-900 text-[10px] font-bold uppercase transition-colors cursor-pointer"
-                        >
-                          How to Allow?
-                        </button>
-                      </div>
                     </motion.div>
                   )}
 
@@ -617,56 +630,123 @@ export default function CheckoutModal() {
             </form>
           </motion.div>
 
-          {/* LOCATION PERMISSION HELPER POPUP MODAL */}
+          {/* INTERACTIVE DELIVERY LOCATION SELECTOR POPUP MODAL */}
           <AnimatePresence>
-            {showLocationHelpModal && (
+            {showLocationPickerModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9, y: 20 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="w-full max-w-sm bg-white rounded-3xl p-6 border-2 border-amber-300 shadow-warm-2xl text-center space-y-4"
+                  className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 border-2 border-amber-300 shadow-warm-2xl space-y-4 max-h-[85vh] flex flex-col"
                 >
-                  <div className="p-3.5 rounded-full bg-amber-100 text-[#4A2818] inline-block ring-4 ring-amber-200">
-                    <Compass className="w-8 h-8 text-[#4A2818] animate-pulse" />
-                  </div>
-                  <div>
-                    <h4 className="font-display text-xl uppercase font-black text-banhmi-dark">
-                      Enable Location in Browser
-                    </h4>
-                    <p className="text-xs text-banhmi-dark/70 font-sans mt-1">
-                      Your browser has location permissions blocked for this website. Follow these 2 steps:
-                    </p>
-                  </div>
-
-                  <div className="text-left bg-[#FFF8F0] p-3.5 rounded-2xl border border-banhmi-gold/40 text-xs font-mono space-y-2 text-banhmi-dark">
-                    <div className="flex items-start space-x-2">
-                      <span className="w-5 h-5 rounded-full bg-[#4A2818] text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-                      <span>Click the <strong>🔒 Lock or Site Settings icon</strong> at the top-left of the address bar.</span>
+                  <div className="flex items-center justify-between border-b border-cream-200 pb-3 flex-shrink-0">
+                    <div className="flex items-center space-x-2">
+                      <Compass className="w-5 h-5 text-[#4A2818]" />
+                      <h4 className="font-display text-xl uppercase font-black text-banhmi-dark">
+                        Select Delivery Location
+                      </h4>
                     </div>
-                    <div className="flex items-start space-x-2">
-                      <span className="w-5 h-5 rounded-full bg-[#4A2818] text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                      <span>Change <strong>Location</strong> to <strong>Allow</strong>.</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => setShowLocationHelpModal(false)}
-                      className="flex-1 py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-banhmi-dark font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
+                      onClick={() => setShowLocationPickerModal(false)}
+                      className="p-1 text-black/40 hover:text-black cursor-pointer"
                     >
-                      Enter Manually
+                      <X className="w-5 h-5" />
                     </button>
+                  </div>
+
+                  <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+                    {/* Auto Detect GPS Button */}
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowLocationHelpModal(false);
-                        handleUseCurrentLocation();
-                      }}
-                      className="flex-1 py-2.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase transition-colors shadow-sm cursor-pointer"
+                      disabled={isLocating}
+                      onClick={handleUseCurrentLocation}
+                      className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 disabled:opacity-60 cursor-pointer"
                     >
-                      Retry GPS
+                      {isLocating ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Detecting GPS Location...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Navigation className="w-4 h-4 text-amber-300" />
+                          <span>Detect My Current GPS Location</span>
+                        </>
+                      )}
+                    </button>
+
+                    {locationError && (
+                      <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-mono">
+                        {locationError}
+                      </div>
+                    )}
+
+                    {/* Live Search Locality Input */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] font-mono uppercase text-black/50 font-bold block">
+                        Or Search Street, Locality or Landmark:
+                      </span>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="e.g. Indiranagar, Koramangala, 560038..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full px-3.5 py-2.5 pl-9 rounded-2xl bg-[#FFF8F0] border border-banhmi-gold/50 text-banhmi-dark font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#4A2818]"
+                        />
+                        <Search className="w-4 h-4 text-black/40 absolute left-3 top-1/2 -translate-y-1/2" />
+                        {isSearching && (
+                          <RefreshCw className="w-3.5 h-3.5 text-black/40 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Suggestions List */}
+                    {suggestions.length > 0 && (
+                      <div className="space-y-1.5 bg-cream-50 p-2.5 rounded-2xl border border-cream-300 max-h-44 overflow-y-auto">
+                        {suggestions.map((item, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => handleSelectSuggestion(item)}
+                            className="p-2.5 rounded-xl bg-white hover:bg-amber-100/70 border border-cream-200 text-xs font-mono text-banhmi-dark cursor-pointer transition-colors flex items-start space-x-2 shadow-xs"
+                          >
+                            <MapPin className="w-3.5 h-3.5 text-banhmi-red flex-shrink-0 mt-0.5" />
+                            <span className="line-clamp-2">{item.displayName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Popular Quick-Select Delivery Areas */}
+                    <div className="space-y-2 pt-2 border-t border-cream-200">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-black/50 font-bold block">
+                        Quick Popular Delivery Zones:
+                      </span>
+                      <div className="flex flex-col gap-1.5">
+                        {POPULAR_AREAS.map((area, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleSelectSuggestion(area)}
+                            className="w-full text-left px-3 py-2 rounded-xl bg-[#FFF8F0] hover:bg-amber-100 border border-banhmi-gold/30 text-xs font-mono text-banhmi-dark transition-colors flex items-center space-x-2 cursor-pointer shadow-xs"
+                          >
+                            <MapPin className="w-3.5 h-3.5 text-banhmi-red flex-shrink-0" />
+                            <span className="truncate">{area}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-cream-200 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowLocationPickerModal(false)}
+                      className="w-full py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-banhmi-dark font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
+                    >
+                      Close &amp; Enter Manually
                     </button>
                   </div>
                 </motion.div>

@@ -1,6 +1,7 @@
 /**
  * Pinpoint-Accurate Geolocation & Reverse Geocoding Utility
- * Uses hardware GPS (High Accuracy) with building-level zoom (zoom=18) and multi-provider reverse-geocoding.
+ * Uses hardware GPS (High Accuracy) with building-level zoom (zoom=18), multi-provider reverse-geocoding,
+ * and live address search autocomplete.
  */
 
 export interface GeocodedAddressResult {
@@ -13,10 +14,20 @@ export interface GeocodedAddressResult {
   error?: string;
 }
 
+export interface AddressSuggestion {
+  displayName: string;
+  street: string;
+  neighbourhood: string;
+  city: string;
+  postcode: string;
+  lat: number;
+  lng: number;
+}
+
 /**
  * Reverse geocodes coordinates to pinpoint human-readable street address
  */
-async function reverseGeocodeCoordinates(lat: number, lng: number): Promise<{ address: string; unitOrApt: string }> {
+export async function reverseGeocodeCoordinates(lat: number, lng: number): Promise<{ address: string; unitOrApt: string }> {
   // Provider 1: OpenStreetMap Nominatim with Building-level precision (zoom=18)
   try {
     const res = await fetch(
@@ -96,7 +107,7 @@ async function reverseGeocodeCoordinates(lat: number, lng: number): Promise<{ ad
 
       if (locality && !parts.includes(locality)) parts.push(locality);
       if (district && !parts.includes(district)) parts.push(district);
-      if (postcode && !parts.includes(postcode)) parts.push(postcode);
+      if (postcode) parts.push(postcode);
 
       if (parts.length > 0) {
         return {
@@ -111,6 +122,54 @@ async function reverseGeocodeCoordinates(lat: number, lng: number): Promise<{ ad
     address: `GPS Pin: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
     unitOrApt: '',
   };
+}
+
+/**
+ * Searches address / street / locality query with instant live autocomplete
+ */
+export async function searchAddressQuery(query: string): Promise<AddressSuggestion[]> {
+  if (!query || query.trim().length < 2) return [];
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query.trim())}&addressdetails=1&limit=5&countrycodes=in`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept-Language': 'en',
+        'User-Agent': 'ZafirooCafeApp/1.0',
+      },
+    });
+
+    if (res.ok) {
+      const list = await res.json();
+      return list.map((item: any) => {
+        const addr = item.address || {};
+        const road = addr.road || addr.street || addr.pedestrian || addr.residential || '';
+        const houseNumber = addr.house_number || addr.building || '';
+        const neighbourhood = addr.neighbourhood || addr.suburb || addr.colony || addr.subdistrict || '';
+        const city = addr.city || addr.town || addr.village || addr.county || 'Bengaluru';
+        const postcode = addr.postcode || '';
+
+        const lineParts = [];
+        if (houseNumber && road) lineParts.push(`${houseNumber}, ${road}`);
+        else if (road) lineParts.push(road);
+        if (neighbourhood && !lineParts.includes(neighbourhood)) lineParts.push(neighbourhood);
+        if (city && !lineParts.includes(city)) lineParts.push(city);
+        if (postcode) lineParts.push(postcode);
+
+        return {
+          displayName: lineParts.length > 0 ? lineParts.join(', ') : item.display_name,
+          street: road || neighbourhood || item.display_name.split(',')[0],
+          neighbourhood,
+          city,
+          postcode,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon),
+        };
+      });
+    }
+  } catch {}
+
+  return [];
 }
 
 /**
@@ -145,11 +204,11 @@ export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult
       (error) => {
         let errorMsg = 'Could not access device GPS.';
         if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = 'Location permission was denied. Please allow location access in your browser settings to autofill your exact address.';
+          errorMsg = 'Location permission was denied by your browser.';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMsg = 'GPS signal is currently unavailable. Please enter address manually.';
+          errorMsg = 'GPS hardware unavailable on this device. Please select or search your area.';
         } else if (error.code === error.TIMEOUT) {
-          errorMsg = 'GPS request timed out. Please try clicking "Use Current Location" again.';
+          errorMsg = 'GPS request timed out. Please select or search your area.';
         }
 
         resolve({
@@ -158,9 +217,9 @@ export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult
         });
       },
       {
-        enableHighAccuracy: true,  // Enforces hardware GPS / WiFi trilateration for pinpoint accuracy
-        timeout: 12000,
-        maximumAge: 0,             // Never use cached stale positions
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
       }
     );
   });
