@@ -1,6 +1,6 @@
 /**
- * Location utility to fetch device GPS coordinates and reverse geocode to human-readable street address.
- * Resilient multi-tier fallback: High-Accuracy GPS -> Standard Geolocation -> IP-based Geolocation fallback.
+ * Pinpoint-Accurate Geolocation & Reverse Geocoding Utility
+ * Uses hardware GPS (High Accuracy) with building-level zoom (zoom=18) and multi-provider reverse-geocoding.
  */
 
 export interface GeocodedAddressResult {
@@ -9,144 +9,158 @@ export interface GeocodedAddressResult {
   unitOrApt?: string;
   lat?: number;
   lng?: number;
+  accuracyMeters?: number;
   error?: string;
 }
 
-// Fallback: Fast IP-Based Geolocation (works seamlessly on desktop PC without GPS hardware or when OS location is disabled)
-async function fetchIpBasedLocation(): Promise<GeocodedAddressResult> {
+/**
+ * Reverse geocodes coordinates to pinpoint human-readable street address
+ */
+async function reverseGeocodeCoordinates(lat: number, lng: number): Promise<{ address: string; unitOrApt: string }> {
+  // Provider 1: OpenStreetMap Nominatim with Building-level precision (zoom=18)
   try {
-    const ipRes = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
-    if (ipRes.ok) {
-      const data = await ipRes.json();
-      const parts = [data.city, data.region, data.postal ? `${data.postal}` : '', data.country_name]
-        .filter(Boolean);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      {
+        headers: {
+          'Accept-Language': 'en',
+          'User-Agent': 'ZafirooCafeApp/1.0',
+        },
+      }
+    );
 
-      if (parts.length > 0) {
+    if (res.ok) {
+      const data = await res.json();
+      const addr = data.address || {};
+
+      const houseNumber = addr.house_number || addr.building || addr.house_name || '';
+      const road = addr.road || addr.street || addr.pedestrian || addr.footway || addr.path || addr.residential || '';
+      const neighbourhood = addr.neighbourhood || addr.suburb || addr.subdistrict || addr.colony || addr.quarter || '';
+      const cityDistrict = addr.city_district || addr.district || '';
+      const city = addr.city || addr.town || addr.municipality || addr.village || addr.county || 'Bengaluru';
+      const postcode = addr.postcode || '';
+      const state = addr.state || 'Karnataka';
+
+      const lineParts: string[] = [];
+      if (houseNumber && road) {
+        lineParts.push(`${houseNumber}, ${road}`);
+      } else if (road) {
+        lineParts.push(road);
+      } else if (houseNumber) {
+        lineParts.push(houseNumber);
+      }
+
+      if (neighbourhood && !lineParts.includes(neighbourhood)) lineParts.push(neighbourhood);
+      if (cityDistrict && !lineParts.includes(cityDistrict) && cityDistrict !== city) lineParts.push(cityDistrict);
+      if (city && !lineParts.includes(city)) lineParts.push(city);
+      if (state && !lineParts.includes(state)) lineParts.push(state);
+      if (postcode) lineParts.push(postcode);
+
+      if (lineParts.length >= 2) {
         return {
-          success: true,
-          address: parts.join(', '),
-          lat: data.latitude,
-          lng: data.longitude,
+          address: lineParts.join(', '),
+          unitOrApt: houseNumber ? `No. ${houseNumber}` : '',
+        };
+      } else if (data.display_name) {
+        return {
+          address: data.display_name,
+          unitOrApt: houseNumber ? `No. ${houseNumber}` : '',
         };
       }
     }
   } catch {}
 
+  // Provider 2: BigDataCloud Precise Reverse Geocoding Client API
   try {
-    const backupRes = await fetch('https://ipwho.is/', { cache: 'no-store' });
-    if (backupRes.ok) {
-      const data = await backupRes.json();
-      if (data.success) {
-        const parts = [data.city, data.region, data.postal, data.country].filter(Boolean);
+    const res = await fetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`,
+      { cache: 'no-store' }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      const parts: string[] = [];
+
+      const thoroughfare = data.localityInfo?.administrative?.[0]?.name || '';
+      const locality = data.locality || data.city || '';
+      const district = data.principalSubdivision || '';
+      const postcode = data.postcode || '';
+
+      if (data.localityInfo?.informative) {
+        for (const info of data.localityInfo.informative) {
+          if (info.name && !parts.includes(info.name) && info.order <= 6) {
+            parts.push(info.name);
+          }
+        }
+      }
+
+      if (locality && !parts.includes(locality)) parts.push(locality);
+      if (district && !parts.includes(district)) parts.push(district);
+      if (postcode && !parts.includes(postcode)) parts.push(postcode);
+
+      if (parts.length > 0) {
         return {
-          success: true,
           address: parts.join(', '),
-          lat: data.latitude,
-          lng: data.longitude,
+          unitOrApt: '',
         };
       }
     }
   } catch {}
 
   return {
-    success: false,
-    error: 'Could not auto-detect location. Please enter street address manually.',
+    address: `GPS Pin: ${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+    unitOrApt: '',
   };
 }
 
+/**
+ * Gets exact device GPS position with High Accuracy enforced
+ */
 export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult> {
   if (typeof window === 'undefined' || !navigator.geolocation) {
-    return fetchIpBasedLocation();
+    return {
+      success: false,
+      error: 'Location services are not supported by your browser.',
+    };
   }
 
   return new Promise((resolve) => {
-    let resolved = false;
-
-    // Timeout guard to guarantee IP fallback if browser hangs
-    const fallbackTimer = setTimeout(async () => {
-      if (!resolved) {
-        resolved = true;
-        const ipResult = await fetchIpBasedLocation();
-        resolve(ipResult);
-      }
-    }, 6000);
-
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimer);
-
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
 
-        try {
-          // Reverse geocode with OpenStreetMap Nominatim
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`,
-            {
-              headers: {
-                'Accept-Language': 'en',
-              },
-            }
-          );
+        const { address, unitOrApt } = await reverseGeocodeCoordinates(lat, lng);
 
-          if (response.ok) {
-            const data = await response.json();
-            const addr = data.address || {};
-
-            const parts: string[] = [];
-
-            // Road / Street / Building
-            const street = addr.road || addr.street || addr.residential || addr.suburb || '';
-            const house = addr.house_number || addr.building || '';
-            const neighbourhood = addr.neighbourhood || addr.suburb || addr.city_district || '';
-            const city = addr.city || addr.town || addr.village || addr.county || 'Bengaluru';
-            const state = addr.state || 'Karnataka';
-            const postcode = addr.postcode || '';
-
-            if (street) parts.push(street);
-            if (neighbourhood && neighbourhood !== street) parts.push(neighbourhood);
-            if (city) parts.push(city);
-            if (state) parts.push(state);
-            if (postcode) parts.push(postcode);
-
-            const formattedAddress = parts.length > 0
-              ? parts.join(', ')
-              : (data.display_name || `GPS Pin (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
-
-            resolve({
-              success: true,
-              address: formattedAddress,
-              unitOrApt: house ? `No. ${house}` : '',
-              lat,
-              lng,
-            });
-            return;
-          }
-        } catch {}
-
-        // Fallback to IP or Coordinates
         resolve({
           success: true,
-          address: `GPS Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          address,
+          unitOrApt,
           lat,
           lng,
+          accuracyMeters: Math.round(accuracy),
         });
       },
-      async () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimer);
+      (error) => {
+        let errorMsg = 'Could not access device GPS.';
+        if (error.code === error.PERMISSION_DENIED) {
+          errorMsg = 'Location permission was denied. Please allow location access in your browser settings to autofill your exact address.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          errorMsg = 'GPS signal is currently unavailable. Please enter address manually.';
+        } else if (error.code === error.TIMEOUT) {
+          errorMsg = 'GPS request timed out. Please try clicking "Use Current Location" again.';
+        }
 
-        // If permission denied or OS location blocked on desktop, seamlessly use IP Geolocation
-        const ipResult = await fetchIpBasedLocation();
-        resolve(ipResult);
+        resolve({
+          success: false,
+          error: errorMsg,
+        });
       },
       {
-        enableHighAccuracy: false,
-        timeout: 5000,
-        maximumAge: 60000,
+        enableHighAccuracy: true,  // Enforces hardware GPS / WiFi trilateration for pinpoint accuracy
+        timeout: 12000,
+        maximumAge: 0,             // Never use cached stale positions
       }
     );
   });

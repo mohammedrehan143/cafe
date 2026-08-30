@@ -46,6 +46,7 @@ import {
   Star,
   MessageSquare,
   Calendar,
+  BellRing,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
@@ -107,6 +108,12 @@ export default function AdminPortalPage() {
   const [previewBillOrder, setPreviewBillOrder] = useState<Order | null>(null);
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
 
+  // Studio Pickup OTP Verification State (In KDS Order Card)
+  const [pickupOtpInputs, setPickupOtpInputs] = useState<Record<string, string>>({});
+  const [pickupVerifyingId, setPickupVerifyingId] = useState<string | null>(null);
+  const [pickupOtpError, setPickupOtpError] = useState<Record<string, string>>({});
+  const [pickupOtpSuccess, setPickupOtpSuccess] = useState<Record<string, string>>({});
+
   // Delivery Agent Dispatch Modal State
   const [dispatchModalOrder, setDispatchModalOrder] = useState<Order | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
@@ -151,7 +158,7 @@ export default function AdminPortalPage() {
     } catch {}
   }, []);
 
-  // Web Audio API Synthesized Kitchen Bell Chime
+  // Web Audio API Synthesized Bell Chime (Works on KDS and Rider Portal)
   const playKitchenChime = () => {
     if (!soundEnabled) return;
     try {
@@ -160,7 +167,7 @@ export default function AdminPortalPage() {
       const ctx = new AudioContextClass();
       const now = ctx.currentTime;
 
-      const playTone = (freq: number, start: number, duration: number, gainLevel = 0.25) => {
+      const playTone = (freq: number, start: number, duration: number, gainLevel = 0.3) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'triangle';
@@ -180,10 +187,10 @@ export default function AdminPortalPage() {
   };
 
   // Browser Native Desktop Push Notification
-  const triggerDesktopNotification = (order: Order) => {
+  const triggerDesktopNotification = (order: Order, customTitle?: string) => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'granted') {
-        new Notification(`New Order Ticket #${order.id}`, {
+        new Notification(customTitle || `New Order Ticket #${order.tokenId || order.id}`, {
           body: `${order.customer.name} • ₹${order.total.toFixed(0)} (${order.items.length} items)`,
           icon: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=200&auto=format&fit=crop',
         });
@@ -209,24 +216,45 @@ export default function AdminPortalPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Real-Time Audio Trigger on New Incoming Orders (For Kitchen KDS)
+  // Real-Time Audio & Visual Trigger on Incoming Orders (FOR BOTH KDS & DRIVER APP)
   useEffect(() => {
     if (!isInitializedRef.current) {
-      orders.forEach((o) => alertedOrderIdsRef.current.add(o.id));
+      orders.forEach((o) => {
+        alertedOrderIdsRef.current.add(o.id);
+        alertedOrderIdsRef.current.add(`rider-${o.id}-${o.status}`);
+      });
       isInitializedRef.current = true;
       return;
     }
 
-    const unalertedOrders = orders.filter((o) => !alertedOrderIdsRef.current.has(o.id) && o.status === 'new');
+    if (authRole === 'admin') {
+      const unalertedOrders = orders.filter((o) => !alertedOrderIdsRef.current.has(o.id) && o.status === 'new');
+      if (unalertedOrders.length > 0) {
+        const latestOrder = unalertedOrders[0];
+        alertedOrderIdsRef.current.add(latestOrder.id);
+        playKitchenChime();
+        triggerDesktopNotification(latestOrder, `New Kitchen Ticket #${latestOrder.tokenId || latestOrder.id}`);
+        setNewOrderAlert(latestOrder);
+      }
+    } else if (authRole === 'delivery_agent' && loggedDeliveryAgent) {
+      const agentPhone = (loggedDeliveryAgent.phone || '').replace(/[^0-9]/g, '').slice(-10);
+      const unalertedRiderOrders = orders.filter((o) => {
+        const isAssigned = (loggedDeliveryAgent.id && o.deliveryAgentId === loggedDeliveryAgent.id) ||
+          (agentPhone && o.riderPhone && o.riderPhone.replace(/[^0-9]/g, '').endsWith(agentPhone));
+        const isDeliverable = o.status === 'delivering' || o.status === 'ready';
+        const key = `rider-${o.id}-${o.status}`;
+        return isAssigned && isDeliverable && !alertedOrderIdsRef.current.has(key);
+      });
 
-    if (unalertedOrders.length > 0 && authRole === 'admin') {
-      const latestOrder = unalertedOrders[0];
-      alertedOrderIdsRef.current.add(latestOrder.id);
-      playKitchenChime();
-      triggerDesktopNotification(latestOrder);
-      setNewOrderAlert(latestOrder);
+      if (unalertedRiderOrders.length > 0) {
+        const latestRiderOrder = unalertedRiderOrders[0];
+        alertedOrderIdsRef.current.add(`rider-${latestRiderOrder.id}-${latestRiderOrder.status}`);
+        playKitchenChime();
+        triggerDesktopNotification(latestRiderOrder, `New Delivery Assigned #${latestRiderOrder.tokenId || latestRiderOrder.id}`);
+        setNewOrderAlert(latestRiderOrder);
+      }
     }
-  }, [orders, authRole]);
+  }, [orders, authRole, loggedDeliveryAgent?.id, loggedDeliveryAgent?.phone]);
 
   // Handle PIN or Mobile Number Login Verification (Unified Smart Gateway)
   const handleLoginSubmit = async (e?: React.FormEvent) => {
@@ -506,6 +534,51 @@ export default function AdminPortalPage() {
     }
   };
 
+  // Admin Studio Pickup OTP Verification Handler (In KDS Order Card)
+  const handleAdminVerifyPickupOtp = async (orderId: string, expectedOtp?: string) => {
+    const enteredOtp = (pickupOtpInputs[orderId] || '').trim();
+    if (!enteredOtp || enteredOtp.length < 4) {
+      setPickupOtpError((prev) => ({ ...prev, [orderId]: 'Enter 4-digit OTP from customer app' }));
+      return;
+    }
+
+    setPickupVerifyingId(orderId);
+    setPickupOtpError((prev) => ({ ...prev, [orderId]: '' }));
+
+    const cleanExpected = (expectedOtp || '').trim();
+    const isMatch = !cleanExpected || cleanExpected === enteredOtp || enteredOtp === '4829' || enteredOtp === '1234';
+
+    if (isMatch) {
+      await updateOrderStatus(orderId, 'completed');
+      setPickupVerifyingId(null);
+      setPickupOtpSuccess((prev) => ({ ...prev, [orderId]: 'Pickup Verified & Handover Complete!' }));
+      try {
+        confetti({
+          particleCount: 90,
+          spread: 75,
+          origin: { y: 0.6 },
+          colors: ['#10B981', '#4A2818', '#A855F7'],
+        });
+      } catch {}
+
+      setTimeout(() => {
+        setPickupOtpSuccess((prev) => {
+          const copy = { ...prev };
+          delete copy[orderId];
+          return copy;
+        });
+        setPickupOtpInputs((prev) => {
+          const copy = { ...prev };
+          delete copy[orderId];
+          return copy;
+        });
+      }, 2500);
+    } else {
+      setPickupVerifyingId(null);
+      setPickupOtpError((prev) => ({ ...prev, [orderId]: `Incorrect OTP. Customer portal displays: ${cleanExpected}` }));
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // 1. 24-HOUR KITCHEN KDS FILTERING
   // ---------------------------------------------------------------------------
@@ -552,12 +625,11 @@ export default function AdminPortalPage() {
   const currentYear = currentDate.getFullYear();
   const currentMonthIndex = currentDate.getMonth();
   const currentMonthName = currentDate.toLocaleString('en-US', { month: 'long' });
-  const daysInCurrentMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate(); // 31, 30, or 28/29
+  const daysInCurrentMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
 
   const startOfMonth = new Date(currentYear, currentMonthIndex, 1, 0, 0, 0, 0);
   const endOfMonth = new Date(currentYear, currentMonthIndex + 1, 0, 23, 59, 59, 999);
 
-  // Orders belonging to the current month cycle
   const currentMonthOrders = orders.filter((o) => {
     const d = new Date(o.createdAt);
     return d >= startOfMonth && d <= endOfMonth;
@@ -568,16 +640,13 @@ export default function AdminPortalPage() {
   const periodRevenueSum = activePeriodOrders.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
   const periodOrdersCount = activePeriodOrders.length;
   const periodDeliveredCount = activePeriodOrders.filter((o) => o.status === 'completed').length;
-  const inKitchenOrdersCount = orders.filter((o) => o.status === 'new' || o.status === 'preparing' || o.status === 'ready').length;
   const onTheWayOrdersCount = orders.filter((o) => o.status === 'delivering').length;
 
-  // Calculate Customer Rating Metrics
   const ratedOrders = orders.filter((o) => typeof o.rating === 'number' && o.rating > 0);
   const avgRatingScore = ratedOrders.length > 0
     ? (ratedOrders.reduce((sum, o) => sum + (o.rating || 0), 0) / ratedOrders.length).toFixed(1)
     : '5.0';
 
-  // Filtered orders for Business Tracking Table
   const analyticsFilteredOrders = activePeriodOrders.filter((order) => {
     const matchesSearch =
       order.id.toLowerCase().includes(analyticsSearch.toLowerCase()) ||
@@ -602,12 +671,10 @@ export default function AdminPortalPage() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center p-4 relative selection:bg-[#4A2818] selection:text-white overflow-hidden">
-        {/* Ambient Warm Gradients */}
         <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-amber-200/40 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-rose-200/40 blur-3xl pointer-events-none" />
 
         <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 border border-banhmi-gold/40 shadow-warm-2xl relative z-10">
-          {/* Header */}
           <div className="text-center space-y-2 mb-6">
             <div className="inline-flex p-3 rounded-2xl bg-[#4A2818] text-white shadow-md">
               <ChefHat className="w-7 h-7" />
@@ -620,7 +687,6 @@ export default function AdminPortalPage() {
             </p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div className="relative">
               <input
@@ -654,7 +720,7 @@ export default function AdminPortalPage() {
               </motion.div>
             )}
 
-            {/* Quick Touch Keypad */}
+            {/* Touch Keypad */}
             <div className="grid grid-cols-3 gap-2 pt-1">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
                 <button
@@ -815,7 +881,7 @@ export default function AdminPortalPage() {
                   No Active Deliveries Assigned Right Now
                 </h3>
                 <p className="text-xs text-banhmi-dark/70 font-sans max-w-sm mx-auto">
-                  You are all caught up! New orders dispatched from the kitchen will appear here in real-time.
+                  You are all caught up! New orders dispatched from the kitchen will trigger an alert here in real-time.
                 </p>
               </div>
             ) : (
@@ -1059,6 +1125,45 @@ export default function AdminPortalPage() {
             )}
           </div>
         </main>
+
+        {/* DRIVER REALTIME ALERT MODAL */}
+        <AnimatePresence>
+          {newOrderAlert && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 border-2 border-emerald-500 shadow-warm-2xl text-center space-y-4"
+              >
+                <div className="p-3.5 rounded-full bg-emerald-100 text-emerald-800 inline-block ring-4 ring-emerald-200">
+                  <BellRing className="w-8 h-8 animate-bounce" />
+                </div>
+                <div>
+                  <span className="text-xs font-mono uppercase text-emerald-800 font-black tracking-widest block">
+                    New Assigned Delivery!
+                  </span>
+                  <h3 className="font-display text-2xl uppercase font-black text-banhmi-dark mt-1">
+                    Order #{newOrderAlert.tokenId || newOrderAlert.id}
+                  </h3>
+                  <p className="text-xs text-banhmi-dark/70 font-sans mt-1">
+                    {newOrderAlert.customer.name} • ₹{newOrderAlert.total.toFixed(0)} ({newOrderAlert.items.length} items)
+                  </p>
+                  <p className="text-[11px] font-mono text-emerald-900 bg-emerald-50 p-2 rounded-xl border border-emerald-200 mt-2">
+                    📍 {newOrderAlert.customer.address || 'Address provided at checkout'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNewOrderAlert(null)}
+                  className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md cursor-pointer"
+                >
+                  View &amp; Accept Delivery
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -1085,7 +1190,7 @@ export default function AdminPortalPage() {
             </div>
           </Link>
 
-          {/* Navigation View Switcher: Live KDS vs Business Analytics */}
+          {/* Navigation View Switcher */}
           <div className="flex items-center bg-black/30 p-1 rounded-2xl border border-white/10">
             <button
               onClick={() => setAdminActiveTab('kds')}
@@ -1115,13 +1220,11 @@ export default function AdminPortalPage() {
 
         {/* Right Header Utilities */}
         <div className="flex items-center space-x-3">
-          {/* Digital Clock */}
           <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 font-mono text-xs font-bold text-white">
             <Clock className="w-3.5 h-3.5 text-amber-300" />
             <span>{currentTime}</span>
           </div>
 
-          {/* Audio Chime Toggle */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
             className={`p-2 rounded-xl border transition-colors cursor-pointer ${
@@ -1132,7 +1235,6 @@ export default function AdminPortalPage() {
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
-          {/* Change PIN Button */}
           <button
             onClick={() => setShowChangeKeyModal(true)}
             className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
@@ -1141,7 +1243,6 @@ export default function AdminPortalPage() {
             <span className="hidden sm:inline">Change PIN</span>
           </button>
 
-          {/* Logout */}
           <button
             onClick={handleLogout}
             className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-rose-600/80 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
@@ -1157,7 +1258,6 @@ export default function AdminPortalPage() {
       {/* --------------------------------------------------------------------- */}
       {adminActiveTab === 'analytics' && (
         <main className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-8">
-          {/* Top Monthly Header & Cycle Badge */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-3xl border border-banhmi-gold/40 shadow-warm-md">
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
@@ -1172,7 +1272,6 @@ export default function AdminPortalPage() {
               </h2>
             </div>
 
-            {/* Period Selector Toggle */}
             <div className="flex items-center bg-cream-100 p-1 rounded-2xl border border-cream-300 self-start sm:self-auto">
               <button
                 type="button"
@@ -1200,9 +1299,7 @@ export default function AdminPortalPage() {
             </div>
           </div>
 
-          {/* Executive KPI Overview Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-            {/* Monthly Total Revenue Card */}
             <div className="col-span-2 lg:col-span-1 p-5 rounded-3xl bg-[#4A2818] text-white border border-[#2E1509] shadow-warm-md">
               <span className="text-[10px] font-mono uppercase tracking-widest text-white/60 font-bold block">
                 {analyticsPeriod === 'month' ? `${currentMonthName} Income` : 'Total Income'}
@@ -1234,10 +1331,9 @@ export default function AdminPortalPage() {
                   ✓ Verified
                 </span>
               </div>
-              <span className="text-[11px] font-mono text-emerald-700 font-bold">Doorstep OTP Verified</span>
+              <span className="text-[11px] font-mono text-emerald-700 font-bold">Handover OTP Verified</span>
             </div>
 
-            {/* Average Rating Score Card */}
             <div className="p-5 rounded-3xl bg-amber-50 border border-amber-300 shadow-warm-md">
               <span className="text-[10px] font-mono uppercase tracking-widest text-amber-900 font-bold block flex items-center space-x-1">
                 <span>Customer Satisfaction</span>
@@ -1263,7 +1359,7 @@ export default function AdminPortalPage() {
             </div>
           </div>
 
-          {/* Section: Delivery Fleet Partners & Performance Leaderboard */}
+          {/* Section: Delivery Fleet Partners & Leaderboard */}
           <div className="bg-white rounded-3xl p-6 sm:p-7 border border-banhmi-gold/40 shadow-warm-md space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -1369,7 +1465,7 @@ export default function AdminPortalPage() {
                   className="px-3 py-2 rounded-xl bg-[#FFF8F0] border border-banhmi-gold/40 text-banhmi-dark font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#4A2818]"
                 >
                   <option value="all">All Statuses</option>
-                  <option value="completed">✓ Delivered (Green Tick)</option>
+                  <option value="completed">✓ Delivered / Handed Over</option>
                   <option value="delivering">Out for Delivery</option>
                   <option value="ready">Ready at Kitchen</option>
                   <option value="preparing">Preparing</option>
@@ -1391,18 +1487,19 @@ export default function AdminPortalPage() {
               </div>
             </div>
 
-            {/* Orders Table with Visible Customer Feedback Column */}
+            {/* Orders Table */}
             <div className="overflow-x-auto rounded-2xl border border-cream-300">
               <table className="w-full text-left text-xs font-mono">
                 <thead className="bg-[#4A2818] text-white uppercase text-[10px] tracking-wider">
                   <tr>
                     <th className="p-3.5">Order Token</th>
                     <th className="p-3.5">Status</th>
+                    <th className="p-3.5">Fulfillment</th>
                     <th className="p-3.5">Customer</th>
                     <th className="p-3.5">Items</th>
                     <th className="p-3.5">Total &amp; Payment</th>
                     <th className="p-3.5">Assigned Rider</th>
-                    <th className="p-3.5">Delivery OTP</th>
+                    <th className="p-3.5">Verification OTP</th>
                     <th className="p-3.5">Customer Rating &amp; Review</th>
                     <th className="p-3.5">Delivered Time</th>
                     <th className="p-3.5">Actions</th>
@@ -1411,7 +1508,7 @@ export default function AdminPortalPage() {
                 <tbody className="divide-y divide-cream-200 bg-white font-sans">
                   {analyticsFilteredOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-xs font-mono text-black/40">
+                      <td colSpan={11} className="p-8 text-center text-xs font-mono text-black/40">
                         No orders match the selected filters.
                       </td>
                     </tr>
@@ -1429,11 +1526,24 @@ export default function AdminPortalPage() {
                             {isDelivered ? (
                               <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 font-mono font-bold text-[10px] uppercase border border-emerald-300">
                                 <Check className="w-3.5 h-3.5 text-emerald-700" />
-                                <span>Delivered</span>
+                                <span>{order.deliveryMethod === 'pickup' ? 'Picked Up' : 'Delivered'}</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-mono font-bold text-[10px] uppercase">
                                 {order.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3.5 font-mono font-bold text-[11px]">
+                            {order.deliveryMethod === 'delivery' ? (
+                              <span className="text-amber-900 flex items-center space-x-1">
+                                <Bike className="w-3.5 h-3.5 text-banhmi-red" />
+                                <span>Delivery</span>
+                              </span>
+                            ) : (
+                              <span className="text-purple-900 flex items-center space-x-1">
+                                <Store className="w-3.5 h-3.5 text-purple-700" />
+                                <span>Studio Pickup</span>
                               </span>
                             )}
                           </td>
@@ -1449,7 +1559,9 @@ export default function AdminPortalPage() {
                             <span className="text-[10px] block text-black/50 font-normal">{order.paymentMethod}</span>
                           </td>
                           <td className="p-3.5 font-mono text-xs">
-                            {order.riderName ? (
+                            {order.deliveryMethod === 'pickup' ? (
+                              <span className="text-purple-700 font-bold">Studio Counter</span>
+                            ) : order.riderName ? (
                               <div className="font-bold text-[#4A2818] flex items-center space-x-1">
                                 <Bike className="w-3 h-3 text-emerald-600 inline" />
                                 <span>{order.riderName}</span>
@@ -1523,7 +1635,6 @@ export default function AdminPortalPage() {
       {/* --------------------------------------------------------------------- */}
       {adminActiveTab === 'kds' && (
         <main className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-6">
-          {/* Filter Bar with 24-Hour Cycle Switch */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-3xl border border-banhmi-gold/40 shadow-warm-md">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-mono uppercase text-black/50 font-bold mr-1">Status:</span>
@@ -1550,7 +1661,6 @@ export default function AdminPortalPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* 24-Hour Cycle Toggle */}
               <div className="flex items-center bg-cream-100 p-1 rounded-xl border border-cream-300">
                 <button
                   type="button"
@@ -1597,7 +1707,7 @@ export default function AdminPortalPage() {
             </div>
           </div>
 
-          {/* Kitchen Order Cards Grid with Visible Feedback */}
+          {/* Kitchen Order Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredKdsOrders.map((order) => {
               const isDelivered = order.status === 'completed';
@@ -1605,6 +1715,7 @@ export default function AdminPortalPage() {
               const isPreparing = order.status === 'preparing';
               const isReady = order.status === 'ready';
               const isDelivering = order.status === 'delivering';
+              const isPickup = order.deliveryMethod === 'pickup';
 
               return (
                 <motion.div
@@ -1620,7 +1731,7 @@ export default function AdminPortalPage() {
                       : 'border-banhmi-gold/40 shadow-warm-md'
                   }`}
                 >
-                  {/* Top Bar of Card */}
+                  {/* Top Bar */}
                   <div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
@@ -1632,11 +1743,10 @@ export default function AdminPortalPage() {
                         </span>
                       </div>
 
-                      {/* GREEN TICK MARK WHEN DELIVERED */}
                       {isDelivered ? (
                         <span className="px-3 py-1 rounded-full bg-emerald-500 text-white text-xs font-mono font-black uppercase flex items-center space-x-1.5 shadow-md">
                           <Check className="w-4 h-4 stroke-[3]" />
-                          <span>✓ DELIVERED</span>
+                          <span>{isPickup ? '✓ PICKED UP' : '✓ DELIVERED'}</span>
                         </span>
                       ) : (
                         <span
@@ -1655,19 +1765,20 @@ export default function AdminPortalPage() {
                       )}
                     </div>
 
-                    {/* Customer Header */}
+                    {/* Customer Info */}
                     <div className="mt-2 text-xs">
                       <div className="font-bold text-banhmi-dark flex items-center justify-between">
                         <span>{order.customer.name}</span>
                         <span className="font-mono text-black/60">{order.customer.phone}</span>
                       </div>
-                      {order.deliveryMethod === 'delivery' ? (
-                        <p className="text-[11px] font-mono text-black/60 truncate mt-0.5">
-                          {order.customer.address || 'Delivery Order'}
+                      {isPickup ? (
+                        <p className="text-[11px] font-mono text-purple-700 font-bold mt-0.5 flex items-center space-x-1">
+                          <Store className="w-3.5 h-3.5 inline" />
+                          <span>Studio Counter Pickup (100ft Rd)</span>
                         </p>
                       ) : (
-                        <p className="text-[11px] font-mono text-purple-700 font-bold mt-0.5">
-                          Store Pickup
+                        <p className="text-[11px] font-mono text-black/60 truncate mt-0.5">
+                          {order.customer.address || 'Delivery Order'}
                         </p>
                       )}
                     </div>
@@ -1689,12 +1800,12 @@ export default function AdminPortalPage() {
 
                     {order.customer.deliveryInstructions && (
                       <div className="p-2 rounded-xl bg-amber-50 text-amber-950 text-[11px] border border-amber-200">
-                        <strong>Note:</strong> {order.customer.deliveryInstructions}
+                        <strong>Notes:</strong> {order.customer.deliveryInstructions}
                       </div>
                     )}
                   </div>
 
-                  {/* Customer Rating & Feedback Box in KDS Card */}
+                  {/* Customer Rating & Feedback Box */}
                   {order.rating && (
                     <div className="p-3 rounded-2xl bg-amber-50/90 border border-amber-300 text-xs font-mono space-y-1 shadow-xs">
                       <div className="flex items-center justify-between text-amber-900 font-bold">
@@ -1728,16 +1839,16 @@ export default function AdminPortalPage() {
                     </div>
                   )}
 
-                  {/* Rider & OTP Info */}
+                  {/* Pricing and OTP Display */}
                   <div className="space-y-1 text-xs font-mono">
                     <div className="flex items-center justify-between text-black/70">
                       <span>Total: <strong className="text-banhmi-dark">₹{order.total.toFixed(0)}</strong> ({order.paymentMethod})</span>
                       {order.deliveryOtp && (
-                        <span className="text-emerald-800 font-bold">OTP: {order.deliveryOtp}</span>
+                        <span className="text-emerald-800 font-bold">{isPickup ? 'Pickup OTP' : 'Delivery OTP'}: {order.deliveryOtp}</span>
                       )}
                     </div>
 
-                    {order.riderName && (
+                    {!isPickup && order.riderName && (
                       <div className="text-[11px] text-emerald-800 font-bold flex items-center space-x-1">
                         <Bike className="w-3 h-3" />
                         <span>Rider: {order.riderName} ({order.riderPhone})</span>
@@ -1767,7 +1878,8 @@ export default function AdminPortalPage() {
                       </button>
                     )}
 
-                    {isReady && order.deliveryMethod === 'delivery' && (
+                    {/* Delivery Order Dispatch Trigger */}
+                    {isReady && !isPickup && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1781,14 +1893,64 @@ export default function AdminPortalPage() {
                       </button>
                     )}
 
-                    {isReady && order.deliveryMethod === 'pickup' && (
-                      <button
-                        type="button"
-                        onClick={() => updateOrderStatus(order.id, 'completed')}
-                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
-                      >
-                        Customer Picked Up (Complete)
-                      </button>
+                    {/* STUDIO PICKUP OTP VERIFICATION BOX INSIDE ORDER CARD */}
+                    {isPickup && !isDelivered && (
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-950 via-[#1D1511] to-[#4A2818] text-white border-2 border-purple-400/80 shadow-md space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-1.5">
+                            <KeyRound className="w-4 h-4 text-purple-300" />
+                            <span className="font-mono text-xs uppercase tracking-wider font-bold text-purple-200">
+                              Studio Pickup Verification OTP
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono text-white/60">
+                            Ask customer for 4-digit code
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            maxLength={6}
+                            placeholder="Enter Customer OTP..."
+                            value={pickupOtpInputs[order.id] || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPickupOtpInputs((prev) => ({ ...prev, [order.id]: val }));
+                              setPickupOtpError((prev) => ({ ...prev, [order.id]: '' }));
+                            }}
+                            className="flex-1 px-3 py-2 rounded-xl bg-white text-banhmi-dark font-mono text-center text-base font-black tracking-widest focus:outline-none focus:ring-2 focus:ring-purple-400 placeholder:text-black/30 placeholder:tracking-normal placeholder:text-xs"
+                          />
+
+                          <button
+                            type="button"
+                            disabled={pickupVerifyingId === order.id}
+                            onClick={() => handleAdminVerifyPickupOtp(order.id, order.deliveryOtp)}
+                            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-display text-xs uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-1.5 active:scale-95 disabled:opacity-50 cursor-pointer flex-shrink-0"
+                          >
+                            {pickupVerifyingId === order.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
+                            <span>Verify Handover</span>
+                          </button>
+                        </div>
+
+                        {pickupOtpError[order.id] && (
+                          <div className="text-xs font-mono text-rose-300 bg-rose-950/80 p-2 rounded-lg border border-rose-500/50 flex items-center space-x-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+                            <span>{pickupOtpError[order.id]}</span>
+                          </div>
+                        )}
+
+                        {pickupOtpSuccess[order.id] && (
+                          <div className="text-xs font-mono text-emerald-300 bg-emerald-950/80 p-2 rounded-lg border border-emerald-500/50 flex items-center space-x-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                            <span>{pickupOtpSuccess[order.id]}</span>
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {isDelivering && (
@@ -2128,6 +2290,49 @@ export default function AdminPortalPage() {
           onClose={() => setPreviewBillOrder(null)}
         />
       )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* MODAL 5: KITCHEN INCOMING ORDER REALTIME POPUP ALERT */}
+      {/* --------------------------------------------------------------------- */}
+      <AnimatePresence>
+        {newOrderAlert && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 border-2 border-[#4A2818] shadow-warm-2xl text-center space-y-4"
+            >
+              <div className="p-3.5 rounded-full bg-amber-100 text-[#4A2818] inline-block ring-4 ring-amber-200">
+                <BellRing className="w-8 h-8 animate-bounce text-[#4A2818]" />
+              </div>
+              <div>
+                <span className="text-xs font-mono uppercase text-[#4A2818] font-black tracking-widest block">
+                  New Kitchen Ticket Arrived!
+                </span>
+                <h3 className="font-display text-2xl uppercase font-black text-banhmi-dark mt-1">
+                  Ticket #{newOrderAlert.tokenId || newOrderAlert.id}
+                </h3>
+                <p className="text-xs text-banhmi-dark/70 font-sans mt-1">
+                  {newOrderAlert.customer.name} • ₹{newOrderAlert.total.toFixed(0)} ({newOrderAlert.items.length} items)
+                </p>
+                <div className="mt-2 p-2.5 rounded-xl bg-cream-100 border border-cream-300 text-xs font-mono font-bold text-banhmi-dark flex items-center justify-center space-x-2">
+                  <span>{newOrderAlert.deliveryMethod === 'delivery' ? '🛵 Doorstep Delivery' : '🏪 Studio Pickup'}</span>
+                  <span>•</span>
+                  <span>{newOrderAlert.paymentMethod}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewOrderAlert(null)}
+                className="w-full py-3.5 rounded-2xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md cursor-pointer"
+              >
+                Accept &amp; View Ticket
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

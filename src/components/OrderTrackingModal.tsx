@@ -223,68 +223,72 @@ export default function OrderTrackingModal() {
                     </div>
                   </div>
 
-                  {/* Delivery Verification OTP Card (Crucial for Handover Verification) */}
-                  {currentOrder.deliveryMethod === 'delivery' && (
-                    <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950 via-[#1D1511] to-amber-950 text-white border-2 border-emerald-500/50 shadow-warm-lg space-y-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center space-x-2">
-                          <span className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                            <ShieldCheck className="w-4 h-4" />
-                          </span>
-                          <span className="text-xs font-mono uppercase tracking-widest text-emerald-300 font-black">
-                            Doorstep Delivery Verification OTP
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold border border-emerald-500/40">
-                          Required for Handover
+                  {/* Verification OTP Card (Required for Handover Verification) */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950 via-[#1D1511] to-amber-950 text-white border-2 border-emerald-500/50 shadow-warm-lg space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          <ShieldCheck className="w-4 h-4" />
+                        </span>
+                        <span className="text-xs font-mono uppercase tracking-widest text-emerald-300 font-black">
+                          {currentOrder.deliveryMethod === 'delivery'
+                            ? 'Doorstep Delivery Verification OTP'
+                            : 'Studio Counter Pickup Verification OTP'}
                         </span>
                       </div>
+                      <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold border border-emerald-500/40">
+                        Required for Handover
+                      </span>
+                    </div>
 
-                      <div className="bg-black/40 rounded-xl p-4 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <span className="text-[10px] font-mono text-white/60 uppercase block">Share this OTP with rider on arrival</span>
-                          <div className="flex items-center space-x-2 mt-1">
-                            {(currentOrder.deliveryOtp || '4829').split('').map((digit, i) => (
-                              <span
-                                key={i}
-                                className="w-10 h-12 rounded-lg bg-white/10 border-2 border-emerald-400/60 text-white font-mono text-2xl font-black flex items-center justify-center shadow-inner tracking-wider"
-                              >
-                                {digit}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const otp = currentOrder.deliveryOtp || '4829';
-                              navigator.clipboard.writeText(otp);
-                              setCopiedToken(true);
-                              setTimeout(() => setCopiedToken(false), 2000);
-                            }}
-                            className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
-                          >
-                            <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>Copy</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const otp = currentOrder.deliveryOtp || '4829';
-                              const msg = `*Zafiroo Delivery OTP Verification*\n\nOrder Token: #${trackingCodeOrToken}\nDelivery OTP: *${otp}*\n\nShare this OTP with the delivery agent to confirm doorstep receipt.`;
-                              window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-                            }}
-                            className="px-3.5 py-2 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
-                          >
-                            <span>Share OTP</span>
-                          </button>
+                    <div className="bg-black/40 rounded-xl p-4 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-mono text-white/60 uppercase block">
+                          {currentOrder.deliveryMethod === 'delivery'
+                            ? 'Share this OTP with rider on arrival'
+                            : 'Show this OTP to cafe counter staff at pickup'}
+                        </span>
+                        <div className="flex items-center space-x-2 mt-1">
+                          {(currentOrder.deliveryOtp || '4829').split('').map((digit, i) => (
+                            <span
+                              key={i}
+                              className="w-10 h-12 rounded-lg bg-white/10 border-2 border-emerald-400/60 text-white font-mono text-2xl font-black flex items-center justify-center shadow-inner tracking-wider"
+                            >
+                              {digit}
+                            </span>
+                          ))}
                         </div>
                       </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const otp = currentOrder.deliveryOtp || '4829';
+                            navigator.clipboard.writeText(otp);
+                            setCopiedToken(true);
+                            setTimeout(() => setCopiedToken(false), 2000);
+                          }}
+                          className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Copy</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const otp = currentOrder.deliveryOtp || '4829';
+                            const msg = `*Zafiroo Order Handover OTP Verification*\n\nOrder Token: #${trackingCodeOrToken}\nVerification OTP: *${otp}*\n\nShow/Share this OTP to confirm receipt.`;
+                            window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+                        >
+                          <span>Share OTP</span>
+                        </button>
+                      </div>
                     </div>
-                  )}
+                  </div>
 
                   {/* Estimated Arrival Banner */}
                   <div className="p-5 rounded-2xl bg-banhmi-dark text-white flex items-center justify-between shadow-warm-md">

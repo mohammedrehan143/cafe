@@ -501,34 +501,37 @@ function TrackerContent() {
               </div>
             </div>
 
-            {/* Delivery Verification OTP Card */}
-            {currentOrder.deliveryMethod === 'delivery' && (
-              <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-[#1D1511] to-amber-950 text-white border-2 border-emerald-500/50 shadow-warm-xl space-y-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      <ShieldCheck className="w-5 h-5" />
-                    </span>
-                    <div>
-                      <span className="text-xs font-mono uppercase tracking-widest text-emerald-300 font-black block">
-                        Doorstep Delivery Verification OTP
-                      </span>
-                      <span className="text-[11px] text-white/70">
-                        Share this 4-digit security code with the rider when they arrive
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono bg-emerald-500/25 text-emerald-300 px-3 py-1 rounded-full font-bold border border-emerald-500/40 shadow-xs">
-                    Required for Handover
+            {/* Handover Verification OTP Card */}
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-[#1D1511] to-amber-950 text-white border-2 border-emerald-500/50 shadow-warm-xl space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center space-x-2">
+                  <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <ShieldCheck className="w-5 h-5" />
                   </span>
-                </div>
-
-                <div className="bg-black/50 rounded-2xl p-5 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <span className="text-xs font-mono text-emerald-200 uppercase tracking-wider block font-bold">
-                      Your Delivery OTP:
+                    <span className="text-xs font-mono uppercase tracking-widest text-emerald-300 font-black block">
+                      {currentOrder.deliveryMethod === 'delivery'
+                        ? 'Doorstep Delivery Verification OTP'
+                        : 'Studio Counter Pickup Verification OTP'}
                     </span>
-                    <div className="flex items-center space-x-3 mt-2">
+                    <span className="text-[11px] text-white/70">
+                      {currentOrder.deliveryMethod === 'delivery'
+                        ? 'Share this 4-digit security code with the rider when they arrive'
+                        : 'Show this 4-digit code to the cafe counter staff at pickup'}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-xs font-mono bg-emerald-500/25 text-emerald-300 px-3 py-1 rounded-full font-bold border border-emerald-500/40 shadow-xs">
+                  Required for Handover
+                </span>
+              </div>
+
+              <div className="bg-black/50 rounded-2xl p-5 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span className="text-xs font-mono text-emerald-200 uppercase tracking-wider block font-bold">
+                    {currentOrder.deliveryMethod === 'delivery' ? 'Your Delivery OTP:' : 'Your Pickup OTP:'}
+                  </span>
+                  <div className="flex items-center space-x-3 mt-2">
                       {(currentOrder.deliveryOtp || '4829').split('').map((digit, i) => (
                         <span
                           key={i}
@@ -570,7 +573,6 @@ function TrackerContent() {
                   </div>
                 </div>
               </div>
-            )}
 
             {/* Big ETA Banner */}
             <div className="p-6 rounded-3xl bg-banhmi-dark text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-warm-lg">
