@@ -60,7 +60,8 @@ export default function CheckoutModal() {
     email: '',
     address: '',
     unitOrApt: '',
-    deliveryInstructions: '',
+    courierNotes: '',
+    chefNotes: '',
   });
 
   const handleUseCurrentLocation = async () => {
@@ -81,7 +82,7 @@ export default function CheckoutModal() {
         setLocationSuccess('Current GPS address auto-filled!');
         setTimeout(() => setLocationSuccess(null), 3500);
       } else {
-        setLocationError(res.error || 'Could not fetch current location. Please allow browser location access.');
+        setLocationError(res.error || 'Could not fetch current location. Please type address manually.');
         setTimeout(() => setLocationError(null), 4500);
       }
     } catch {
@@ -124,20 +125,38 @@ export default function CheckoutModal() {
     }
   };
 
+  const getFormattedCustomer = () => {
+    const combinedNotes = [
+      customer.courierNotes ? `[Delivery: ${customer.courierNotes.trim()}]` : '',
+      customer.chefNotes ? `[Chef: ${customer.chefNotes.trim()}]` : '',
+    ].filter(Boolean).join(' ');
+
+    return {
+      name: customer.name.trim(),
+      phone: customer.phone.trim(),
+      email: customer.email.trim(),
+      address: customer.address.trim(),
+      unitOrApt: customer.unitOrApt.trim(),
+      deliveryInstructions: combinedNotes,
+    };
+  };
+
   const handleShareWhatsAppLocation = async () => {
+    const combinedNotes = [
+      customer.courierNotes ? `[Delivery: ${customer.courierNotes.trim()}]` : '',
+      customer.chefNotes ? `[Chef: ${customer.chefNotes.trim()}]` : '',
+    ].filter(Boolean).join(' ');
+
     const result = await shareLiveLocationOnWhatsApp({
       customerName: customer.name || 'Customer',
       address: customer.address,
-      customNote: customer.deliveryInstructions,
+      customNote: combinedNotes,
       total: finalTotal,
     });
     if (result.coords && !customer.address) {
       setCustomer((prev) => ({
         ...prev,
         address: prev.address || 'Live GPS Location Shared via WhatsApp',
-        deliveryInstructions: prev.deliveryInstructions
-          ? `${prev.deliveryInstructions} (GPS: ${result.coords?.lat.toFixed(5)}, ${result.coords?.lng.toFixed(5)})`
-          : `GPS: https://maps.google.com/?q=${result.coords?.lat.toFixed(5)},${result.coords?.lng.toFixed(5)}`,
       }));
     }
   };
@@ -149,7 +168,8 @@ export default function CheckoutModal() {
       email: '',
       address: '',
       unitOrApt: '',
-      deliveryInstructions: '',
+      courierNotes: '',
+      chefNotes: '',
     });
     setIsProcessingPayment(false);
   };
@@ -166,13 +186,13 @@ export default function CheckoutModal() {
       return;
     }
 
+    const currentCustomerData = getFormattedCustomer();
+    const currentMethod = deliveryMethod;
+
     // 1. ONLINE PAYMENT VIA CASHFREE
     if (paymentChoice === 'cashfree') {
       setIsProcessingPayment(true);
       try {
-        const currentCustomerData = { ...customer };
-        const currentMethod = deliveryMethod;
-
         const orderRes = await fetch('/api/cashfree/order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -244,17 +264,17 @@ export default function CheckoutModal() {
         resetCheckoutForm();
       } catch (err: any) {
         console.error('Payment initialization failed:', err);
-        await placeOrder(customer, deliveryMethod, 0, 'Online (Cashfree Direct)');
+        await placeOrder(currentCustomerData, currentMethod, 0, 'Online (Cashfree Direct)');
         triggerConfetti();
         resetCheckoutForm();
       }
     } else {
       // 3. CASH ON DELIVERY
       await placeOrder(
-        customer,
-        deliveryMethod,
+        currentCustomerData,
+        currentMethod,
         0,
-        deliveryMethod === 'delivery' ? 'Cash on Delivery (COD)' : 'Pay at Pickup'
+        currentMethod === 'delivery' ? 'Cash on Delivery (COD)' : 'Pay at Pickup'
       );
       triggerConfetti();
       resetCheckoutForm();
@@ -299,7 +319,7 @@ export default function CheckoutModal() {
               <button
                 type="button"
                 onClick={() => setCheckoutModalOpen(false)}
-                className="p-2 rounded-full hover:bg-cream-200 text-espresso-700 transition-colors flex-shrink-0"
+                className="p-2 rounded-full hover:bg-cream-200 text-espresso-700 transition-colors flex-shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -325,7 +345,7 @@ export default function CheckoutModal() {
                     <Bike className="w-5 h-5 text-banhmi-red" />
                     <div>
                       <div className="font-display text-lg uppercase font-bold text-banhmi-dark">
-                        Superfast Delivery
+                        Delivery
                       </div>
                       <div className="text-[11px] font-mono text-banhmi-dark/60">
                         {deliveryFee === 0 ? 'Free Delivery' : `₹${deliveryFee.toFixed(0)} • Thermal sealed`}
@@ -344,7 +364,7 @@ export default function CheckoutModal() {
                     <Store className="w-5 h-5 text-banhmi-red" />
                     <div>
                       <div className="font-display text-lg uppercase font-bold text-banhmi-dark">
-                        Kitchen Pickup
+                        Studio Pickup
                       </div>
                       <div className="text-[11px] font-mono text-banhmi-dark/60">Indiranagar 100ft Rd (10m)</div>
                     </div>
@@ -409,7 +429,7 @@ export default function CheckoutModal() {
                       {isLocating ? (
                         <>
                           <RefreshCw className="w-3 h-3 text-[#4A2818] animate-spin" />
-                          <span>Detecting GPS...</span>
+                          <span>Detecting Location...</span>
                         </>
                       ) : (
                         <>
@@ -463,11 +483,13 @@ export default function CheckoutModal() {
                       />
                     </div>
                   </div>
+
+                  {/* Independent Courier Delivery Notes */}
                   <input
                     type="text"
-                    placeholder="Courier Notes (e.g. Ring doorbell, landmark)"
-                    value={customer.deliveryInstructions}
-                    onChange={(e) => setCustomer({ ...customer, deliveryInstructions: e.target.value })}
+                    placeholder="Courier Notes (e.g. Ring doorbell, landmark, gate code)"
+                    value={customer.courierNotes}
+                    onChange={(e) => setCustomer({ ...customer, courierNotes: e.target.value })}
                     className="w-full px-3.5 py-2 rounded-2xl bg-white border border-banhmi-gold/40 text-banhmi-dark text-xs focus:outline-none focus:ring-2 focus:ring-banhmi-red font-mono"
                   />
 
@@ -482,7 +504,7 @@ export default function CheckoutModal() {
                 </div>
               )}
 
-              {/* Chef Customization Note (Available for both delivery and pickup) */}
+              {/* Chef Customization Note (Independent from courier notes) */}
               <div className="space-y-2 pt-1 bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200/70">
                 <span className="text-xs font-mono uppercase tracking-wider text-amber-950 font-bold flex items-center space-x-1.5">
                   <ChefHat className="w-3.5 h-3.5 text-[#4A2818]" />
@@ -492,13 +514,13 @@ export default function CheckoutModal() {
                 <textarea
                   rows={2}
                   placeholder="e.g. Extra crispy fries, less sugar in coffee, no ice, extra spicy, separate dip, allergic to nuts..."
-                  value={customer.deliveryInstructions}
-                  onChange={(e) => setCustomer({ ...customer, deliveryInstructions: e.target.value })}
+                  value={customer.chefNotes}
+                  onChange={(e) => setCustomer({ ...customer, chefNotes: e.target.value })}
                   className="w-full px-3.5 py-2 rounded-xl bg-white border border-amber-300/80 text-banhmi-dark text-xs focus:outline-none focus:ring-2 focus:ring-[#4A2818] font-mono resize-none placeholder:text-black/40"
                 />
               </div>
 
-              {/* Payment Method Selector (Cashfree vs Cash) */}
+              {/* Payment Method Selector */}
               <div className="space-y-3 pt-1">
                 <span className="text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold block">
                   3. Payment Method
@@ -509,18 +531,15 @@ export default function CheckoutModal() {
                     className={`p-4 rounded-2xl border cursor-pointer flex items-center space-x-3 transition-all ${
                       paymentChoice === 'cashfree'
                         ? 'bg-white border-banhmi-red ring-2 ring-banhmi-red shadow-warm-sm'
-                        : 'bg-cream-100/70 border-cream-300'
+                        : 'bg-cream-100/70 border-cream-300 hover:border-banhmi-gold/40'
                     }`}
                   >
-                    <div className="p-2 rounded-xl bg-banhmi-red text-white">
-                      <Zap className="w-4 h-4 text-white" />
-                    </div>
+                    <CreditCard className="w-5 h-5 text-banhmi-red" />
                     <div>
-                      <div className="font-display text-base uppercase font-bold text-banhmi-dark flex items-center space-x-1.5">
-                        <span>Cashfree PG</span>
-                        <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">Fast</span>
+                      <div className="font-display text-base uppercase font-bold text-banhmi-dark">
+                        UPI / Card / NetBanking
                       </div>
-                      <div className="text-[11px] font-mono text-banhmi-dark/60">UPI, GPay, PhonePe, Cards, NetBanking</div>
+                      <div className="text-[10px] font-mono text-emerald-800 font-bold">Instant Instant PG</div>
                     </div>
                   </div>
 
@@ -529,61 +548,61 @@ export default function CheckoutModal() {
                     className={`p-4 rounded-2xl border cursor-pointer flex items-center space-x-3 transition-all ${
                       paymentChoice === 'cod'
                         ? 'bg-white border-banhmi-red ring-2 ring-banhmi-red shadow-warm-sm'
-                        : 'bg-cream-100/70 border-cream-300'
+                        : 'bg-cream-100/70 border-cream-300 hover:border-banhmi-gold/40'
                     }`}
                   >
-                    <div className="p-2 rounded-xl bg-banhmi-dark text-white">
-                      <CreditCard className="w-4 h-4 text-white" />
-                    </div>
+                    <Store className="w-5 h-5 text-banhmi-red" />
                     <div>
                       <div className="font-display text-base uppercase font-bold text-banhmi-dark">
-                        {deliveryMethod === 'delivery' ? 'Cash on Delivery' : 'Pay at Pickup'}
+                        {deliveryMethod === 'delivery' ? 'Cash on Delivery' : 'Pay at Counter'}
                       </div>
-                      <div className="text-[11px] font-mono text-banhmi-dark/60">Pay when receiving food</div>
+                      <div className="text-[10px] font-mono text-banhmi-dark/60">Pay upon receipt</div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Cost Summary Box */}
-              <div className="p-5 rounded-2xl bg-cream-100/80 border border-cream-300 space-y-2 font-mono text-xs text-banhmi-dark">
-                <div className="flex justify-between">
-                  <span className="text-banhmi-dark/60">Bag Items ({cart.length})</span>
-                  <span className="font-bold">₹{cartSubtotal.toFixed(0)}</span>
+              {/* Order Summary & Submit Button */}
+              <div className="p-4 rounded-2xl bg-cream-100 border border-cream-300 space-y-2">
+                <div className="flex justify-between text-xs font-mono text-banhmi-dark">
+                  <span>Items Subtotal ({cart.length} items)</span>
+                  <span>₹{cartSubtotal.toFixed(0)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-banhmi-dark/60">
-                    {deliveryMethod === 'delivery' ? 'Thermal Delivery' : 'Pickup'}
-                  </span>
-                  <span className="font-bold">{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee.toFixed(0)}`}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-banhmi-dark/60">GST (5%)</span>
+                {deliveryMethod === 'delivery' && (
+                  <div className="flex justify-between text-xs font-mono text-banhmi-dark">
+                    <span>Thermal Delivery Fee</span>
+                    <span>{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee.toFixed(0)}`}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xs font-mono text-banhmi-dark">
+                  <span>GST &amp; Cafe Service Tax (5%)</span>
                   <span>₹{tax.toFixed(0)}</span>
                 </div>
-                <div className="flex justify-between pt-2 border-t border-cream-300 font-display text-2xl uppercase font-black text-banhmi-dark">
-                  <span>Grand Total</span>
+                <div className="pt-2 border-t border-cream-300 flex justify-between font-display text-xl uppercase font-black text-banhmi-dark">
+                  <span>Total Amount</span>
                   <span className="text-banhmi-red">₹{finalTotal.toFixed(0)}</span>
                 </div>
               </div>
 
-              {/* Submit Button */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isProcessingPayment}
-                  className="w-full py-4 rounded-full bg-banhmi-red hover:bg-banhmi-redDark text-white font-display text-lg uppercase tracking-wider font-bold transition-all shadow-warm-lg flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
-                >
-                  <ShieldCheck className="w-5 h-5 text-white" />
-                  <span>
-                    {isProcessingPayment
-                      ? 'Processing Payment...'
-                      : paymentChoice === 'cashfree'
-                      ? `Pay with Online PG • ₹${finalTotal.toFixed(0)}`
-                      : `Place Order • ₹${finalTotal.toFixed(0)}`}
-                  </span>
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isProcessingPayment}
+                className="w-full py-4 rounded-2xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-display text-lg uppercase tracking-wider font-bold transition-all shadow-warm-md hover:shadow-warm-lg active:scale-98 disabled:opacity-50 flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                {isProcessingPayment ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Connecting Payment Gateway...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-5 h-5 text-amber-300" />
+                    <span>
+                      {paymentChoice === 'cashfree' ? `Pay ₹${finalTotal.toFixed(0)} Securely` : `Place Order (₹${finalTotal.toFixed(0)})`}
+                    </span>
+                  </>
+                )}
+              </button>
             </form>
           </motion.div>
         </div>

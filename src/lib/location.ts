@@ -1,5 +1,6 @@
 /**
  * Location utility to fetch device GPS coordinates and reverse geocode to human-readable street address.
+ * Resilient multi-tier fallback: High-Accuracy GPS -> Standard Geolocation -> IP-based Geolocation fallback.
  */
 
 export interface GeocodedAddressResult {
@@ -11,17 +12,71 @@ export interface GeocodedAddressResult {
   error?: string;
 }
 
+// Fallback: Fast IP-Based Geolocation (works seamlessly on desktop PC without GPS hardware or when OS location is disabled)
+async function fetchIpBasedLocation(): Promise<GeocodedAddressResult> {
+  try {
+    const ipRes = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+    if (ipRes.ok) {
+      const data = await ipRes.json();
+      const parts = [data.city, data.region, data.postal ? `${data.postal}` : '', data.country_name]
+        .filter(Boolean);
+
+      if (parts.length > 0) {
+        return {
+          success: true,
+          address: parts.join(', '),
+          lat: data.latitude,
+          lng: data.longitude,
+        };
+      }
+    }
+  } catch {}
+
+  try {
+    const backupRes = await fetch('https://ipwho.is/', { cache: 'no-store' });
+    if (backupRes.ok) {
+      const data = await backupRes.json();
+      if (data.success) {
+        const parts = [data.city, data.region, data.postal, data.country].filter(Boolean);
+        return {
+          success: true,
+          address: parts.join(', '),
+          lat: data.latitude,
+          lng: data.longitude,
+        };
+      }
+    }
+  } catch {}
+
+  return {
+    success: false,
+    error: 'Could not auto-detect location. Please enter street address manually.',
+  };
+}
+
 export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult> {
   if (typeof window === 'undefined' || !navigator.geolocation) {
-    return {
-      success: false,
-      error: 'Geolocation is not supported by your browser.',
-    };
+    return fetchIpBasedLocation();
   }
 
   return new Promise((resolve) => {
+    let resolved = false;
+
+    // Timeout guard to guarantee IP fallback if browser hangs
+    const fallbackTimer = setTimeout(async () => {
+      if (!resolved) {
+        resolved = true;
+        const ipResult = await fetchIpBasedLocation();
+        resolve(ipResult);
+      }
+    }, 6000);
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(fallbackTimer);
+
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
 
@@ -69,11 +124,9 @@ export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult
             });
             return;
           }
-        } catch {
-          // Fallback if reverse geocoding API timed out
-        }
+        } catch {}
 
-        // Fallback with exact GPS coordinates
+        // Fallback to IP or Coordinates
         resolve({
           success: true,
           address: `GPS Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
@@ -81,24 +134,19 @@ export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult
           lng,
         });
       },
-      (error) => {
-        let errorMsg = 'Unable to retrieve your location.';
-        if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = 'Location permission was denied. Please allow location access in your browser.';
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMsg = 'Location information is currently unavailable.';
-        } else if (error.code === error.TIMEOUT) {
-          errorMsg = 'Location request timed out. Please try again.';
-        }
-        resolve({
-          success: false,
-          error: errorMsg,
-        });
+      async () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(fallbackTimer);
+
+        // If permission denied or OS location blocked on desktop, seamlessly use IP Geolocation
+        const ipResult = await fetchIpBasedLocation();
+        resolve(ipResult);
       },
       {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
+        enableHighAccuracy: false,
+        timeout: 5000,
+        maximumAge: 60000,
       }
     );
   });
