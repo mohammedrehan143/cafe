@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminKey, saveUserAdminKey, getSupabaseAdminKeys, UNIVERSAL_MASTER_KEY } from '@/lib/adminAuth';
 import { isAuthThrottled, recordFailedAuthAttempt, clearFailedAuthAttempts } from '@/lib/security';
+import { supabase, isSupabaseConfigured, formatDbDeliveryAgent } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   // Check if current IP has exceeded maximum WRONG attempts
   const throttle = isAuthThrottled(req, 25, 60);
   if (throttle.throttled) {
     return NextResponse.json(
-      { success: false, error: 'Too many incorrect PIN attempts. Please wait 1 minute.' },
+      { success: false, error: 'Too many incorrect attempts. Please wait 1 minute.' },
       { status: 429, headers: { 'Retry-After': String(throttle.resetIn) } }
     );
   }
@@ -18,36 +19,67 @@ export async function POST(req: NextRequest) {
 
     if (!key || typeof key !== 'string') {
       return NextResponse.json(
-        { success: false, error: 'Authorization key is required.' },
+        { success: false, error: 'PIN or Mobile number is required.' },
         { status: 400 }
       );
     }
 
-    const { valid, isUniversal } = await verifyAdminKey(key);
+    const cleanInput = key.trim();
 
-    if (!valid) {
-      // ONLY increment rate limit counter for failed attempts
-      recordFailedAuthAttempt(req);
-      return NextResponse.json(
-        { success: false, error: 'Invalid Admin Key or Master PIN.' },
-        { status: 401 }
-      );
+    // 1. Try Admin PIN / Master Key verification
+    const { valid, isUniversal } = await verifyAdminKey(cleanInput);
+
+    if (valid) {
+      clearFailedAuthAttempts(req);
+      const token = Buffer.from(`auth_${Date.now()}_${isUniversal ? 'universal' : 'user'}`).toString('base64');
+      return NextResponse.json({
+        success: true,
+        role: 'admin',
+        isUniversal,
+        token,
+        message: isUniversal
+          ? 'Authenticated successfully with Universal Master Key.'
+          : 'Authenticated successfully with Kitchen Admin Key.',
+      });
     }
 
-    // CORRECT PIN: Clear any prior failed attempts so all kitchen devices can authenticate without hindrance
-    clearFailedAuthAttempts(req);
+    // 2. Check if input is a Delivery Agent's Mobile Number (10 digits)
+    const cleanPhone = cleanInput.replace(/[^0-9]/g, '').slice(-10);
+    if (cleanPhone.length >= 10) {
+      // Check in Supabase delivery_agents table
+      if (isSupabaseConfigured) {
+        try {
+          const { data, error } = await supabase
+            .from('delivery_agents')
+            .select('*')
+            .or(`phone.eq.${cleanPhone},phone.ilike.%${cleanPhone}%`)
+            .limit(1)
+            .maybeSingle();
 
-    // Generate a simple auth token
-    const token = Buffer.from(`auth_${Date.now()}_${isUniversal ? 'universal' : 'user'}`).toString('base64');
+          if (!error && data) {
+            clearFailedAuthAttempts(req);
+            const agent = formatDbDeliveryAgent(data);
+            const token = Buffer.from(`agent_${agent.id}_${Date.now()}`).toString('base64');
+            return NextResponse.json({
+              success: true,
+              role: 'delivery_agent',
+              agent,
+              token,
+              message: `Welcome, Delivery Partner ${agent.name}!`,
+            });
+          }
+        } catch (dbErr) {
+          console.warn('Supabase agent lookup note:', dbErr);
+        }
+      }
+    }
 
-    return NextResponse.json({
-      success: true,
-      isUniversal,
-      token,
-      message: isUniversal
-        ? 'Authenticated successfully with Universal Master Key.'
-        : 'Authenticated successfully with Custom Admin Key.',
-    });
+    // Failed both Admin PIN and Delivery Agent Mobile checks
+    recordFailedAuthAttempt(req);
+    return NextResponse.json(
+      { success: false, error: 'Invalid Kitchen PIN or Unregistered Delivery Agent Mobile Number.' },
+      { status: 401 }
+    );
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error?.message || 'Authentication error occurred.' },

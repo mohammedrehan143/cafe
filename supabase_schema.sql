@@ -43,12 +43,28 @@ CREATE TABLE IF NOT EXISTS public.menu_items (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 3. Create Orders Table with Customer ID & Order Token ID
+-- 3. Create Delivery Agents Table (Rider Management, Login & Live Tracking)
+CREATE TABLE IF NOT EXISTS public.delivery_agents (
+    id TEXT PRIMARY KEY,                          -- e.g. AGT-9876-01
+    name TEXT NOT NULL,
+    phone TEXT UNIQUE NOT NULL,                   -- 10-digit normalized phone number for rider login
+    status TEXT NOT NULL DEFAULT 'active' 
+        CHECK (status IN ('active', 'inactive', 'on_delivery', 'off_duty')),
+    vehicle_type TEXT DEFAULT 'Electric Bike',
+    orders_delivered_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 4. Create Orders Table with Customer ID, Delivery Agent ID & Doorstep Delivery OTP
 CREATE TABLE IF NOT EXISTS public.orders (
     id TEXT PRIMARY KEY,                          -- e.g. ZF-9421-XK7
     token_id TEXT UNIQUE NOT NULL,                -- Clean Tracking Token: e.g. TOK-9421-XK7 / ZF-9421-XK7
     tracking_code TEXT UNIQUE NOT NULL,           -- Direct tracking lookup code
     customer_id TEXT REFERENCES public.customers(id) ON DELETE SET NULL,
+    delivery_agent_id TEXT REFERENCES public.delivery_agents(id) ON DELETE SET NULL,
+    delivery_otp TEXT,                            -- 4-digit doorstep delivery verification OTP (e.g. 4829)
+    delivered_at TIMESTAMPTZ,                     -- Timestamp when verified and delivered
     status TEXT NOT NULL DEFAULT 'new' 
         CHECK (status IN ('new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled')),
     delivery_method TEXT NOT NULL DEFAULT 'delivery' 
@@ -66,25 +82,33 @@ CREATE TABLE IF NOT EXISTS public.orders (
     tip NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
     total NUMERIC(10, 2) NOT NULL,
     estimated_time TEXT NOT NULL DEFAULT '20-30 min',
-    payment_method TEXT NOT NULL DEFAULT 'Online',
+    payment_method TEXT NOT NULL DEFAULT 'Online (Cashfree)',
     payment_status TEXT NOT NULL DEFAULT 'completed' 
         CHECK (payment_status IN ('pending', 'completed', 'failed', 'refunded')),
+    cashfree_order_id TEXT,
+    cashfree_payment_id TEXT,
     razorpay_order_id TEXT,
     razorpay_payment_id TEXT,
     rider_name TEXT,
     rider_phone TEXT,
+    rating NUMERIC(2, 1),                         -- Customer star rating: e.g. 5.0, 4.0
+    feedback_tags TEXT[] DEFAULT '{}',            -- Compliment chips: e.g. ['Hot & Fresh', 'Super Fast Delivery']
+    feedback_note TEXT,                           -- Customer review comments
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. High Performance Lookups & Real-time Tracking Indexes
+-- 5. High Performance Lookups & Real-time Tracking Indexes
 CREATE INDEX IF NOT EXISTS idx_orders_token_id ON public.orders (token_id);
 CREATE INDEX IF NOT EXISTS idx_orders_tracking_code ON public.orders (tracking_code);
 CREATE INDEX IF NOT EXISTS idx_orders_customer_phone ON public.orders (customer_phone);
 CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON public.orders (customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_delivery_agent_id ON public.orders (delivery_agent_id);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON public.orders (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders (status);
 
+CREATE INDEX IF NOT EXISTS idx_delivery_agents_phone ON public.delivery_agents (phone);
+CREATE INDEX IF NOT EXISTS idx_delivery_agents_status ON public.delivery_agents (status);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON public.customers (phone);
 CREATE INDEX IF NOT EXISTS idx_menu_items_category ON public.menu_items (category);
 CREATE INDEX IF NOT EXISTS idx_menu_items_available ON public.menu_items (is_available);
@@ -122,26 +146,36 @@ CREATE TRIGGER trigger_customers_updated_at
 BEFORE UPDATE ON public.customers
 FOR EACH ROW EXECUTE FUNCTION update_modtime_column();
 
+DROP TRIGGER IF EXISTS trigger_delivery_agents_updated_at ON public.delivery_agents;
+CREATE TRIGGER trigger_delivery_agents_updated_at
+BEFORE UPDATE ON public.delivery_agents
+FOR EACH ROW EXECUTE FUNCTION update_modtime_column();
+
 DROP TRIGGER IF EXISTS trigger_menu_items_updated_at ON public.menu_items;
 CREATE TRIGGER trigger_menu_items_updated_at
 BEFORE UPDATE ON public.menu_items
 FOR EACH ROW EXECUTE FUNCTION update_modtime_column();
 
--- 7. Enable Supabase Realtime for Live Live Order Tracking
--- Note: Run these in Supabase SQL editor to broadcast live events
+-- 7. Enable Supabase Realtime for Live Order Tracking & Rider Updates
 ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.menu_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.customers;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.delivery_agents;
 
 -- 8. Row Level Security (RLS) Policies
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.delivery_agents ENABLE ROW LEVEL SECURITY;
 
 -- Customers RLS
 CREATE POLICY "Public can select customer" ON public.customers FOR SELECT USING (true);
 CREATE POLICY "Public can insert/upsert customer" ON public.customers FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public can update customer" ON public.customers FOR UPDATE USING (true);
+
+-- Delivery Agents RLS
+CREATE POLICY "Public can view delivery agents" ON public.delivery_agents FOR SELECT USING (true);
+CREATE POLICY "Staff can manage delivery agents" ON public.delivery_agents FOR ALL USING (true);
 
 -- Menu Items RLS (Public read-only, staff write)
 CREATE POLICY "Public can view active menu items" ON public.menu_items FOR SELECT USING (true);
@@ -151,6 +185,15 @@ CREATE POLICY "Staff can manage menu items" ON public.menu_items FOR ALL USING (
 CREATE POLICY "Public can view order by token or code" ON public.orders FOR SELECT USING (true);
 CREATE POLICY "Public can place new order" ON public.orders FOR INSERT WITH CHECK (true);
 CREATE POLICY "Staff and system can update order status" ON public.orders FOR UPDATE USING (true);
+
+-- Seed Initial Delivery Agents
+INSERT INTO public.delivery_agents (id, name, phone, status, vehicle_type, orders_delivered_count)
+VALUES
+    ('AGT-9876-01', 'Ramesh Sharma', '9876543210', 'active', 'Electric Bike', 18),
+    ('AGT-9123-02', 'Vikram Singh', '9123456780', 'active', 'Motorcycle', 29),
+    ('AGT-9988-03', 'Sunil Kumar', '9988776655', 'active', 'Scooter', 12)
+ON CONFLICT (phone) DO UPDATE 
+SET name = EXCLUDED.name, status = EXCLUDED.status;
 
 -- ==============================================================================
 -- 9. Initial Menu Seed Data (18 Gourmet Artisan Items)

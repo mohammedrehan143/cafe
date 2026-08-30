@@ -22,6 +22,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  experimental: {
+    webpackBuildWorker: false,
+  },
   // Enterprise Security Headers
   async headers() {
     return [

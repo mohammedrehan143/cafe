@@ -75,7 +75,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { customer, deliveryMethod, items, subtotal, deliveryFee, tax, tip, total, paymentMethod, razorpayDetails } = body;
+    const {
+      customer,
+      deliveryMethod,
+      items,
+      subtotal,
+      deliveryFee,
+      tax,
+      tip,
+      total,
+      paymentMethod,
+      cashfreeDetails,
+      razorpayDetails,
+    } = body;
 
     // Validate customer inputs
     const customerValidation = validateCustomer(customer);
@@ -96,13 +108,16 @@ export async function POST(req: NextRequest) {
     }
 
     const sanitizedMethod = deliveryMethod === 'pickup' ? 'pickup' : 'delivery';
-    const sanitizedPayment = sanitizeString(paymentMethod || 'Online (Razorpay)', 60);
+    const sanitizedPayment = sanitizeString(paymentMethod || 'Online (Cashfree)', 60);
 
     // Generate unique Order Token ID and Tracking Code (e.g. TOK-9421-XK7 / ZF-9421-XK7)
     const randomDigits = Math.floor(1000 + Math.random() * 9000);
     const randomChars = Math.random().toString(36).substring(2, 5).toUpperCase();
     const trackingCode = `ZF-${randomDigits}-${randomChars}`;
     const tokenId = `TOK-${randomDigits}-${randomChars}`;
+
+    // Generate 4-digit Doorstep Delivery Verification OTP (e.g. 4829)
+    const deliveryOtp = String(Math.floor(1000 + Math.random() * 9000));
 
     // Clean phone number for customer identity
     const cleanDigits = sanitizedCustomer.phone.replace(/[^0-9]/g, '');
@@ -172,11 +187,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const cashfreeOrderId = sanitizeString(cashfreeDetails?.cashfree_order_id || cashfreeDetails?.orderId || '', 80);
+    const cashfreePaymentId = sanitizeString(cashfreeDetails?.cashfree_payment_id || cashfreeDetails?.paymentId || '', 80);
+    const razorpayOrderId = sanitizeString(razorpayDetails?.razorpay_order_id || '', 80);
+    const razorpayPaymentId = sanitizeString(razorpayDetails?.razorpay_payment_id || '', 80);
+
     const newOrder: Order = {
       id: trackingCode,
       tokenId: tokenId,
       trackingCode: trackingCode,
       customerId: customerId,
+      deliveryOtp: deliveryOtp,
       createdAt: new Date().toISOString(),
       status: 'new',
       deliveryMethod: sanitizedMethod,
@@ -194,14 +215,16 @@ export async function POST(req: NextRequest) {
       estimatedTime: sanitizedMethod === 'delivery' ? '20-30 min' : '10-15 min',
       paymentMethod: sanitizedPayment,
       paymentStatus: 'completed',
-      razorpayOrderId: sanitizeString(razorpayDetails?.razorpay_order_id || '', 80),
-      razorpayPaymentId: sanitizeString(razorpayDetails?.razorpay_payment_id || '', 80),
+      cashfreeOrderId: cashfreeOrderId || undefined,
+      cashfreePaymentId: cashfreePaymentId || undefined,
+      razorpayOrderId: razorpayOrderId || undefined,
+      razorpayPaymentId: razorpayPaymentId || undefined,
     };
 
     // 2. Insert Order into Supabase
     if (isSupabaseConfigured) {
       try {
-        const orderInsertPayload = {
+        const orderInsertPayload: any = {
           id: trackingCode,
           token_id: tokenId,
           tracking_code: trackingCode,
@@ -223,8 +246,9 @@ export async function POST(req: NextRequest) {
           estimated_time: newOrder.estimatedTime,
           payment_method: sanitizedPayment,
           payment_status: 'completed',
-          razorpay_order_id: sanitizeString(razorpayDetails?.razorpay_order_id || '', 80),
-          razorpay_payment_id: sanitizeString(razorpayDetails?.razorpay_payment_id || '', 80),
+          delivery_otp: deliveryOtp,
+          cashfree_order_id: cashfreeOrderId || null,
+          cashfree_payment_id: cashfreePaymentId || null,
         };
 
         let { error: insertOrderErr } = await supabase.from('orders').insert(orderInsertPayload);
@@ -248,7 +272,7 @@ export async function POST(req: NextRequest) {
         if (insertOrderErr) {
           console.error('Supabase order insert failed:', insertOrderErr.message);
         } else {
-          console.log('✅ Order successfully saved to Supabase:', trackingCode);
+          console.log('✅ Order successfully saved to Supabase:', trackingCode, 'with OTP:', deliveryOtp);
         }
       } catch (err: any) {
         console.error('Supabase order insert exception:', err);
@@ -263,6 +287,7 @@ export async function POST(req: NextRequest) {
       tokenId: tokenId,
       trackingId: trackingCode,
       customerId: customerId,
+      deliveryOtp: deliveryOtp,
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message || 'Order placement failed' }, { status: 500 });

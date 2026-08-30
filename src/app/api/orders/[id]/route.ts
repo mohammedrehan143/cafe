@@ -155,18 +155,25 @@ export async function PATCH(
     const { id } = await params;
     const lookupId = sanitizeString(decodeURIComponent(id).trim(), 40);
     const body = await req.json();
-    const { status, riderName, riderPhone } = body;
+    const { status, riderName, riderPhone, agentId, rating, feedbackTags, feedbackNote } = body;
 
     const validStatuses: OrderStatus[] = ['new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled'];
-    if (!validStatuses.includes(status)) {
+    if (status && !validStatuses.includes(status)) {
       return NextResponse.json({ success: false, error: 'Invalid order status' }, { status: 400 });
     }
 
     if (isSupabaseConfigured) {
       try {
-        const updatePayload: any = { status, updated_at: new Date().toISOString() };
+        const nowISO = new Date().toISOString();
+        const updatePayload: any = { updated_at: nowISO };
+        if (status) updatePayload.status = status;
         if (riderName) updatePayload.rider_name = sanitizeString(riderName, 60);
         if (riderPhone) updatePayload.rider_phone = sanitizeString(riderPhone, 30);
+        if (agentId) updatePayload.delivery_agent_id = sanitizeString(agentId, 40);
+        if (status === 'completed') updatePayload.delivered_at = nowISO;
+        if (rating !== undefined) updatePayload.rating = Number(rating);
+        if (Array.isArray(feedbackTags)) updatePayload.feedback_tags = feedbackTags;
+        if (feedbackNote) updatePayload.feedback_note = sanitizeString(feedbackNote, 500);
 
         const { error } = await supabase
           .from('orders')
@@ -174,17 +181,21 @@ export async function PATCH(
           .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`);
 
         if (error) {
-          // If rider_name column does not exist in schema, fallback to updating status and storing rider in customer_instructions
-          const fallbackPayload: any = { status, updated_at: new Date().toISOString() };
-          if (riderName && riderPhone) {
+          // Fallback if specific rating or feedback columns don't exist yet
+          const fallbackPayload: any = { updated_at: nowISO };
+          if (status) fallbackPayload.status = status;
+          if (status === 'completed') fallbackPayload.delivered_at = nowISO;
+
+          if (rating || feedbackNote || feedbackTags) {
             const { data: currentData } = await supabase
               .from('orders')
               .select('customer_instructions')
               .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`)
               .maybeSingle();
 
-            const baseNotes = (currentData?.customer_instructions || '').replace(/\[RIDER:.*?\]/g, '').trim();
-            fallbackPayload.customer_instructions = `${baseNotes} [RIDER: ${sanitizeString(riderName, 60)} | ${sanitizeString(riderPhone, 30)}]`.trim();
+            const feedbackSummary = `[FEEDBACK: Rating=${rating || 5} | Tags=${(feedbackTags || []).join(',')} | Note=${feedbackNote || ''}]`;
+            const baseNotes = (currentData?.customer_instructions || '').replace(/\[FEEDBACK:.*?\]/g, '').trim();
+            fallbackPayload.customer_instructions = `${baseNotes} ${feedbackSummary}`.trim();
           }
 
           await supabase
@@ -197,7 +208,7 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json({ success: true, status, riderName, riderPhone });
+    return NextResponse.json({ success: true, status, riderName, riderPhone, agentId, rating, feedbackTags, feedbackNote });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }

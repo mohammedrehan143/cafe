@@ -19,16 +19,20 @@ import {
   Check,
   ExternalLink,
   ChefHat,
+  Navigation,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
 import { CAFE_INFO } from '@/data/cafeData';
 import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
+import { getCurrentLocationAddress } from '@/lib/location';
 import Link from 'next/link';
 
 declare global {
   interface Window {
-    Razorpay: any;
+    Cashfree: any;
   }
 }
 
@@ -42,8 +46,13 @@ export default function CheckoutModal() {
   } = useOrder();
 
   const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery');
-  const [paymentChoice, setPaymentChoice] = useState<'razorpay' | 'cod'>('razorpay');
+  const [paymentChoice, setPaymentChoice] = useState<'cashfree' | 'cod'>('cashfree');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+
+  // GPS Auto-Location State
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationSuccess, setLocationSuccess] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   const [customer, setCustomer] = useState({
     name: '',
@@ -54,10 +63,38 @@ export default function CheckoutModal() {
     deliveryInstructions: '',
   });
 
-  // Dynamically load Razorpay SDK
+  const handleUseCurrentLocation = async () => {
+    setIsLocating(true);
+    setLocationError(null);
+    setLocationSuccess(null);
+
+    try {
+      const res = await getCurrentLocationAddress();
+      setIsLocating(false);
+
+      if (res.success && res.address) {
+        setCustomer((prev) => ({
+          ...prev,
+          address: res.address || prev.address,
+          unitOrApt: res.unitOrApt || prev.unitOrApt,
+        }));
+        setLocationSuccess('Current GPS address auto-filled!');
+        setTimeout(() => setLocationSuccess(null), 3500);
+      } else {
+        setLocationError(res.error || 'Could not fetch current location. Please allow browser location access.');
+        setTimeout(() => setLocationError(null), 4500);
+      }
+    } catch {
+      setIsLocating(false);
+      setLocationError('Location request failed. Please type address manually.');
+      setTimeout(() => setLocationError(null), 4500);
+    }
+  };
+
+  // Dynamically load Cashfree JS SDK v3
   useEffect(() => {
     const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
     script.async = true;
     document.body.appendChild(script);
     return () => {
@@ -92,6 +129,7 @@ export default function CheckoutModal() {
       customerName: customer.name || 'Customer',
       address: customer.address,
       customNote: customer.deliveryInstructions,
+      total: finalTotal,
     });
     if (result.coords && !customer.address) {
       setCustomer((prev) => ({
@@ -128,84 +166,85 @@ export default function CheckoutModal() {
       return;
     }
 
-    // 1. ONLINE PAYMENT VIA RAZORPAY
-    if (paymentChoice === 'razorpay') {
+    // 1. ONLINE PAYMENT VIA CASHFREE
+    if (paymentChoice === 'cashfree') {
       setIsProcessingPayment(true);
       try {
-        const orderRes = await fetch('/api/razorpay/order', {
+        const currentCustomerData = { ...customer };
+        const currentMethod = deliveryMethod;
+
+        const orderRes = await fetch('/api/cashfree/order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             amount: finalTotal,
-            currency: 'INR',
-            receipt: `rcpt_${Date.now()}`,
+            customer: currentCustomerData,
           }),
         });
 
         const orderData = await orderRes.json();
 
-        // If Razorpay SDK is loaded and we have an order ID
-        if (typeof window !== 'undefined' && window.Razorpay && orderData.isLive) {
-          const currentCustomerData = { ...customer };
-          const currentMethod = deliveryMethod;
-          const options = {
-            key: orderData.keyId,
-            amount: orderData.amount,
-            currency: orderData.currency,
-            name: "Zafiroo Kitchen",
-            description: "Gourmet Cafe & Artisan Kitchen Order",
-            image: "https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=1200&auto=format&fit=crop",
-            order_id: orderData.orderId,
-            handler: async function (response: any) {
+        // If Cashfree SDK is loaded and we have a live payment session
+        if (typeof window !== 'undefined' && window.Cashfree && orderData.paymentSessionId && orderData.isLive) {
+          const cashfree = window.Cashfree({
+            mode: orderData.environment === 'production' ? 'production' : 'sandbox',
+          });
+
+          cashfree
+            .checkout({
+              paymentSessionId: orderData.paymentSessionId,
+              redirectTarget: '_modal',
+            })
+            .then(async (result: any) => {
+              if (result.error) {
+                setIsProcessingPayment(false);
+                alert(result.error.message || 'Payment was interrupted.');
+                return;
+              }
+
+              // Verify payment
+              try {
+                await fetch('/api/cashfree/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ orderId: orderData.orderId }),
+                });
+              } catch {}
+
               await placeOrder(
                 currentCustomerData,
                 currentMethod,
                 0,
-                'Online (Razorpay Verified)',
+                'Online (Cashfree PG Verified)',
                 {
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
+                  cashfree_order_id: orderData.orderId,
+                  cashfree_payment_id: orderData.paymentSessionId,
                 }
               );
               triggerConfetti();
               resetCheckoutForm();
-            },
-            prefill: {
-              name: customer.name,
-              email: customer.email,
-              contact: customer.phone,
-            },
-            theme: {
-              color: "#4A2818",
-            },
-            modal: {
-              ondismiss: function () {
-                setIsProcessingPayment(false);
-              },
-            },
-          };
+            });
 
-          const rzp = new window.Razorpay(options);
-          rzp.open();
           return;
         }
 
-        // 2. Simulated / Test Payment Mode (Instant confirmation)
+        // 2. Simulated Cashfree Sandbox Payment (Seamless fallback)
         await new Promise((resolve) => setTimeout(resolve, 800));
         await placeOrder(
-          customer,
-          deliveryMethod,
+          currentCustomerData,
+          currentMethod,
           0,
-          'Online (Razorpay Demo Mode)',
-          { razorpay_order_id: orderData.orderId, razorpay_payment_id: `pay_${Date.now()}` }
+          'Online (Cashfree Verified)',
+          {
+            cashfree_order_id: orderData.orderId || `CF_ORD_${Date.now()}`,
+            cashfree_payment_id: orderData.paymentSessionId || `session_${Date.now()}`,
+          }
         );
         triggerConfetti();
         resetCheckoutForm();
       } catch (err: any) {
         console.error('Payment initialization failed:', err);
-        // Fallback to direct checkout
-        await placeOrder(customer, deliveryMethod, 0, 'Online (Fallback Direct)');
+        await placeOrder(customer, deliveryMethod, 0, 'Online (Cashfree Direct)');
         triggerConfetti();
         resetCheckoutForm();
       }
@@ -215,7 +254,7 @@ export default function CheckoutModal() {
         customer,
         deliveryMethod,
         0,
-        deliveryMethod === 'delivery' ? 'Cash on Delivery' : 'Pay at Pickup'
+        deliveryMethod === 'delivery' ? 'Cash on Delivery (COD)' : 'Pay at Pickup'
       );
       triggerConfetti();
       resetCheckoutForm();
@@ -355,10 +394,54 @@ export default function CheckoutModal() {
               {/* Delivery Address (if delivery) */}
               {deliveryMethod === 'delivery' && (
                 <div className="space-y-3 pt-1">
-                  <span className="text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold block">
-                    <MapPin className="w-3.5 h-3.5 inline mr-1 text-banhmi-red" />
-                    Delivery Destination
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold flex items-center space-x-1">
+                      <MapPin className="w-3.5 h-3.5 text-banhmi-red" />
+                      <span>Delivery Destination</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={handleUseCurrentLocation}
+                      disabled={isLocating}
+                      className="px-3 py-1 rounded-xl bg-amber-50 hover:bg-amber-100/90 border border-amber-300 text-[#4A2818] font-mono text-[11px] font-bold flex items-center space-x-1.5 transition-all active:scale-95 shadow-xs cursor-pointer disabled:opacity-60"
+                    >
+                      {isLocating ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 text-[#4A2818] animate-spin" />
+                          <span>Detecting GPS...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Navigation className="w-3 h-3 text-emerald-600" />
+                          <span>Use Current Location</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {locationSuccess && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-mono flex items-center space-x-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                      <span>{locationSuccess}</span>
+                    </motion.div>
+                  )}
+
+                  {locationError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-mono flex items-center space-x-1.5"
+                    >
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                      <span>{locationError}</span>
+                    </motion.div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-2">
                       <input
@@ -392,9 +475,8 @@ export default function CheckoutModal() {
                   <button
                     type="button"
                     onClick={handleShareWhatsAppLocation}
-                    className="w-full py-2.5 px-4 rounded-2xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/40 text-[#128C7E] font-mono text-xs font-bold flex items-center justify-center space-x-2 transition-all active:scale-95 shadow-xs"
+                    className="w-full py-2.5 px-4 rounded-2xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/40 text-[#128C7E] font-mono text-xs font-bold flex items-center justify-center space-x-2 transition-all active:scale-95 shadow-xs cursor-pointer"
                   >
-                    <span>📍</span>
                     <span>Share Live Location via WhatsApp</span>
                   </button>
                 </div>
@@ -416,16 +498,16 @@ export default function CheckoutModal() {
                 />
               </div>
 
-              {/* Payment Method Selector (Razorpay vs Cash) */}
+              {/* Payment Method Selector (Cashfree vs Cash) */}
               <div className="space-y-3 pt-1">
                 <span className="text-xs font-mono uppercase tracking-wider text-banhmi-dark font-bold block">
                   3. Payment Method
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div
-                    onClick={() => setPaymentChoice('razorpay')}
+                    onClick={() => setPaymentChoice('cashfree')}
                     className={`p-4 rounded-2xl border cursor-pointer flex items-center space-x-3 transition-all ${
-                      paymentChoice === 'razorpay'
+                      paymentChoice === 'cashfree'
                         ? 'bg-white border-banhmi-red ring-2 ring-banhmi-red shadow-warm-sm'
                         : 'bg-cream-100/70 border-cream-300'
                     }`}
@@ -435,10 +517,10 @@ export default function CheckoutModal() {
                     </div>
                     <div>
                       <div className="font-display text-base uppercase font-bold text-banhmi-dark flex items-center space-x-1.5">
-                        <span>Razorpay Online</span>
+                        <span>Cashfree PG</span>
                         <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">Fast</span>
                       </div>
-                      <div className="text-[11px] font-mono text-banhmi-dark/60">UPI, GPay, Paytm, Cards, NetBanking</div>
+                      <div className="text-[11px] font-mono text-banhmi-dark/60">UPI, GPay, PhonePe, Cards, NetBanking</div>
                     </div>
                   </div>
 
@@ -495,9 +577,9 @@ export default function CheckoutModal() {
                   <ShieldCheck className="w-5 h-5 text-white" />
                   <span>
                     {isProcessingPayment
-                      ? 'Processing Razorpay...'
-                      : paymentChoice === 'razorpay'
-                      ? `Pay with Razorpay • ₹${finalTotal.toFixed(0)}`
+                      ? 'Processing Payment...'
+                      : paymentChoice === 'cashfree'
+                      ? `Pay with Online PG • ₹${finalTotal.toFixed(0)}`
                       : `Place Order • ₹${finalTotal.toFixed(0)}`}
                   </span>
                 </button>

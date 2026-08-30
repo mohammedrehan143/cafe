@@ -44,6 +44,17 @@ export interface CartItem {
 export type OrderStatus = 'new' | 'preparing' | 'ready' | 'delivering' | 'completed' | 'cancelled';
 export type DeliveryMethod = 'delivery' | 'pickup';
 
+export interface DeliveryAgent {
+  id: string; // e.g. AGENT-9876-101
+  name: string;
+  phone: string; // 10-digit phone number
+  status: 'active' | 'inactive' | 'on_delivery' | 'off_duty';
+  vehicleType?: string;
+  ordersDeliveredCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Customer {
   id: string; // e.g. CUST-9886-A4F
   phone: string;
@@ -62,6 +73,9 @@ export interface Order {
   tokenId?: string; // Order Token ID for tracking (e.g. TOK-9421-XK7 / ZF-9421-XK7)
   trackingCode?: string;
   customerId?: string; // Customer ID reference
+  deliveryAgentId?: string; // Delivery Agent ID reference
+  deliveryOtp?: string; // 4-digit OTP for doorstep delivery verification (e.g. "4829")
+  deliveredAt?: string; // ISO timestamp when delivery was verified with OTP
   createdAt: string;
   status: OrderStatus;
   deliveryMethod: DeliveryMethod;
@@ -82,10 +96,15 @@ export interface Order {
   estimatedTime: string; // e.g. "20-30 min"
   paymentMethod: string;
   paymentStatus?: 'pending' | 'completed' | 'failed' | 'refunded';
+  cashfreeOrderId?: string;
+  cashfreePaymentId?: string;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
   riderName?: string;
   riderPhone?: string;
+  rating?: number;
+  feedbackTags?: string[];
+  feedbackNote?: string;
 }
 
 export interface SignatureDish {
