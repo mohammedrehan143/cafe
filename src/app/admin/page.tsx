@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -58,6 +58,50 @@ import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supa
 import OriginalBillReceipt from '@/components/OriginalBillReceipt';
 import BillModal from '@/components/BillModal';
 
+// Isolated, high-performance Live Clock component (does not trigger full KDS re-renders)
+const LiveClock = React.memo(function LiveClock() {
+  const [time, setTime] = useState('');
+
+  useEffect(() => {
+    const update = () => {
+      setTime(
+        new Date().toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        })
+      );
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return <span>{time || '--:--:--'}</span>;
+});
+
+// Isolated Midnight Countdown component (auto-updates every 15s without re-rendering parent tree)
+const MidnightCountdown = React.memo(function MidnightCountdown() {
+  const [countdown, setCountdown] = useState('');
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+      const diffMs = Math.max(0, nextMidnight.getTime() - now.getTime());
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      setCountdown(`${hours}h ${minutes}m`);
+    };
+    update();
+    const id = setInterval(update, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  return <span>{countdown || '24h'}</span>;
+});
+
 export default function AdminPortalPage() {
   const {
     orders,
@@ -107,7 +151,6 @@ export default function AdminPortalPage() {
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'delivery' | 'pickup'>('all');
   const [kdsTimeCycle, setKdsTimeCycle] = useState<'24h' | 'all'>('24h');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [currentTime, setCurrentTime] = useState<string>('');
   const [previewBillOrder, setPreviewBillOrder] = useState<Order | null>(null);
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
 
@@ -205,23 +248,7 @@ export default function AdminPortalPage() {
     }
   };
 
-  // Keep digital clock live
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setCurrentTime(
-        now.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: true,
-        })
-      );
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
+
 
   // Real-Time Audio & Visual Trigger on Incoming Orders (FOR BOTH KDS & DRIVER APP)
   useEffect(() => {
@@ -354,10 +381,11 @@ export default function AdminPortalPage() {
       )
       .subscribe();
 
-    // Heartbeat poll every 4 seconds
+    // Heartbeat poll fallback (paused when tab is in background)
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       fetchRiderOrders();
-    }, 4000);
+    }, 6000);
 
     return () => {
       supabase.removeChannel(channel);
@@ -732,115 +760,154 @@ export default function AdminPortalPage() {
   };
 
   // ---------------------------------------------------------------------------
-  // 1. 24-HOUR KITCHEN KDS FILTERING
+  // 1. 24-HOUR KITCHEN KDS FILTERING (Memoized for high performance)
   // ---------------------------------------------------------------------------
-  const nowMs = Date.now();
-  const twentyFourHoursAgoMs = nowMs - 24 * 60 * 60 * 1000;
+  const kdsCycleOrders = useMemo(() => {
+    const nowMs = Date.now();
+    const twentyFourHoursAgoMs = nowMs - 24 * 60 * 60 * 1000;
+    return orders.filter((order) => {
+      if (kdsTimeCycle === '24h') {
+        const isRecent = new Date(order.createdAt).getTime() >= twentyFourHoursAgoMs;
+        const isUncompleted = order.status !== 'completed' && order.status !== 'cancelled';
+        return isRecent || isUncompleted;
+      }
+      return true;
+    });
+  }, [orders, kdsTimeCycle]);
 
-  const kdsCycleOrders = orders.filter((order) => {
-    if (kdsTimeCycle === '24h') {
-      const isRecent = new Date(order.createdAt).getTime() >= twentyFourHoursAgoMs;
-      const isUncompleted = order.status !== 'completed' && order.status !== 'cancelled';
-      return isRecent || isUncompleted;
-    }
-    return true;
-  });
+  const filteredKdsOrders = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return kdsCycleOrders.filter((order) => {
+      const matchesStatus = activeFilter === 'all' || order.status === activeFilter;
+      const matchesDelivery = deliveryFilter === 'all' || order.deliveryMethod === deliveryFilter;
+      if (!matchesStatus || !matchesDelivery) return false;
+      if (!q) return true;
 
-  const filteredKdsOrders = kdsCycleOrders.filter((order) => {
-    const matchesStatus = activeFilter === 'all' || order.status === activeFilter;
-    const matchesDelivery = deliveryFilter === 'all' || order.deliveryMethod === deliveryFilter;
-    const matchesSearch =
-      order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (order.tokenId && order.tokenId.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      order.customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.customer.phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (order.customer.address && order.customer.address.toLowerCase().includes(searchQuery.toLowerCase()));
+      return (
+        order.id.toLowerCase().includes(q) ||
+        (order.tokenId && order.tokenId.toLowerCase().includes(q)) ||
+        order.customer.name.toLowerCase().includes(q) ||
+        order.customer.phone.includes(q) ||
+        (order.customer.address && order.customer.address.toLowerCase().includes(q))
+      );
+    });
+  }, [kdsCycleOrders, activeFilter, deliveryFilter, searchQuery]);
 
-    return matchesStatus && matchesDelivery && matchesSearch;
-  });
+  // Delivery Agent Portal Assigned Orders
+  const riderActiveDeliveries = useMemo(() => {
+    return riderOrders.filter((o) => o.status !== 'completed' && o.status !== 'cancelled');
+  }, [riderOrders]);
 
-  // Delivery Agent Portal Assigned Orders (Directly fetched and synced for this agent from database)
-  const riderActiveDeliveries = riderOrders.filter((o) => o.status !== 'completed' && o.status !== 'cancelled');
-  const riderCompletedDeliveries = riderOrders.filter((o) => o.status === 'completed');
+  const riderCompletedDeliveries = useMemo(() => {
+    return riderOrders.filter((o) => o.status === 'completed');
+  }, [riderOrders]);
 
   // ---------------------------------------------------------------------------
-  // 2. TODAY'S 24-HOUR INCOME & DYNAMIC MONTHLY CYCLE CALCULATIONS (Resets at 12:00 AM Midnight)
+  // 2. TODAY'S 24-HOUR INCOME & DYNAMIC MONTHLY CYCLE CALCULATIONS (Memoized)
   // ---------------------------------------------------------------------------
-  const currentDate = new Date();
-  const currentYear = currentDate.getFullYear();
-  const currentMonthIndex = currentDate.getMonth();
-  const currentMonthName = currentDate.toLocaleString('en-US', { month: 'long' });
-  const daysInCurrentMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
-
-  // Start of today: 00:00:00 AM (Midnight)
-  const startOfToday = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 0, 0, 0, 0);
-  const endOfToday = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 23, 59, 59, 999);
-
-  // Orders placed today (from 12:00 AM to 11:59:59 PM)
-  const todaysOrders = orders.filter((o) => {
-    const d = new Date(o.createdAt);
-    return d >= startOfToday && d <= endOfToday;
-  });
-
-  const todaysIncome = todaysOrders.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
-  const todaysOrdersCount = todaysOrders.length;
-  const todaysDeliveredCount = todaysOrders.filter((o) => o.status === 'completed').length;
-  const todaysCookingCount = todaysOrders.filter((o) => o.status === 'new' || o.status === 'preparing' || o.status === 'ready').length;
-  const todaysDeliveringCount = todaysOrders.filter((o) => o.status === 'delivering').length;
-
-  // Monthly orders
-  const startOfMonth = new Date(currentYear, currentMonthIndex, 1, 0, 0, 0, 0);
-  const endOfMonth = new Date(currentYear, currentMonthIndex + 1, 0, 23, 59, 59, 999);
-
-  const currentMonthOrders = orders.filter((o) => {
-    const d = new Date(o.createdAt);
-    return d >= startOfMonth && d <= endOfMonth;
-  });
-
-  const activePeriodOrders =
-    analyticsPeriod === 'today'
-      ? todaysOrders
-      : analyticsPeriod === 'month'
-      ? currentMonthOrders
-      : orders;
-
-  const periodRevenueSum = activePeriodOrders.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
-  const periodOrdersCount = activePeriodOrders.length;
-  const periodDeliveredCount = activePeriodOrders.filter((o) => o.status === 'completed').length;
-  const onTheWayOrdersCount = orders.filter((o) => o.status === 'delivering').length;
-
-  const ratedOrders = orders.filter((o) => typeof o.rating === 'number' && o.rating > 0);
-  const avgRatingScore = ratedOrders.length > 0
-    ? (ratedOrders.reduce((sum, o) => sum + (o.rating || 0), 0) / ratedOrders.length).toFixed(1)
-    : '5.0';
-
-  // Countdown to 12:00 AM Midnight reset
-  const getMidnightResetCountdown = () => {
+  const {
+    currentDate,
+    currentMonthName,
+    currentYear,
+    daysInCurrentMonth,
+    todaysIncome,
+    todaysOrdersCount,
+    todaysDeliveredCount,
+    todaysCookingCount,
+    activePeriodOrders,
+    periodRevenueSum,
+    periodOrdersCount,
+    periodDeliveredCount,
+    onTheWayOrdersCount,
+    ratedOrders,
+    avgRatingScore,
+  } = useMemo(() => {
     const now = new Date();
-    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-    const diffMs = Math.max(0, nextMidnight.getTime() - now.getTime());
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}h ${minutes}m`;
-  };
+    const year = now.getFullYear();
+    const monthIndex = now.getMonth();
+    const monthName = now.toLocaleString('en-US', { month: 'long' });
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
 
-  const analyticsFilteredOrders = activePeriodOrders.filter((order) => {
-    const matchesSearch =
-      order.id.toLowerCase().includes(analyticsSearch.toLowerCase()) ||
-      (order.tokenId && order.tokenId.toLowerCase().includes(analyticsSearch.toLowerCase())) ||
-      order.customer.name.toLowerCase().includes(analyticsSearch.toLowerCase()) ||
-      order.customer.phone.includes(analyticsSearch);
+    // Today: 00:00:00 to 23:59:59
+    const startOfToday = new Date(year, monthIndex, now.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(year, monthIndex, now.getDate(), 23, 59, 59, 999);
 
-    const matchesStatus =
-      analyticsStatusFilter === 'all' || order.status === analyticsStatusFilter;
+    const todayList = orders.filter((o) => {
+      const d = new Date(o.createdAt);
+      return d >= startOfToday && d <= endOfToday;
+    });
 
-    const matchesRider =
-      analyticsRiderFilter === 'all' ||
-      (order.riderName && order.riderName.toLowerCase().includes(analyticsRiderFilter.toLowerCase())) ||
-      (order.deliveryAgentId && order.deliveryAgentId === analyticsRiderFilter);
+    const todayInc = todayList.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
+    const todayOrders = todayList.length;
+    const todayDelivered = todayList.filter((o) => o.status === 'completed').length;
+    const todayCooking = todayList.filter((o) => o.status === 'new' || o.status === 'preparing' || o.status === 'ready').length;
 
-    return matchesSearch && matchesStatus && matchesRider;
-  });
+    // Monthly orders
+    const startOfMonth = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+
+    const monthList = orders.filter((o) => {
+      const d = new Date(o.createdAt);
+      return d >= startOfMonth && d <= endOfMonth;
+    });
+
+    const activeList =
+      analyticsPeriod === 'today'
+        ? todayList
+        : analyticsPeriod === 'month'
+        ? monthList
+        : orders;
+
+    const revSum = activeList.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
+    const count = activeList.length;
+    const delivered = activeList.filter((o) => o.status === 'completed').length;
+    const onTheWay = orders.filter((o) => o.status === 'delivering').length;
+
+    const rated = orders.filter((o) => typeof o.rating === 'number' && o.rating > 0);
+    const avgScore = rated.length > 0
+      ? (rated.reduce((sum, o) => sum + (o.rating || 0), 0) / rated.length).toFixed(1)
+      : '5.0';
+
+    return {
+      currentDate: now,
+      currentMonthName: monthName,
+      currentYear: year,
+      daysInCurrentMonth: daysInMonth,
+      todaysIncome: todayInc,
+      todaysOrdersCount: todayOrders,
+      todaysDeliveredCount: todayDelivered,
+      todaysCookingCount: todayCooking,
+      activePeriodOrders: activeList,
+      periodRevenueSum: revSum,
+      periodOrdersCount: count,
+      periodDeliveredCount: delivered,
+      onTheWayOrdersCount: onTheWay,
+      ratedOrders: rated,
+      avgRatingScore: avgScore,
+    };
+  }, [orders, analyticsPeriod]);
+
+  const analyticsFilteredOrders = useMemo(() => {
+    const q = analyticsSearch.toLowerCase().trim();
+    return activePeriodOrders.filter((order) => {
+      const matchesSearch =
+        !q ||
+        order.id.toLowerCase().includes(q) ||
+        (order.tokenId && order.tokenId.toLowerCase().includes(q)) ||
+        order.customer.name.toLowerCase().includes(q) ||
+        order.customer.phone.includes(q);
+
+      const matchesStatus =
+        analyticsStatusFilter === 'all' || order.status === analyticsStatusFilter;
+
+      const matchesRider =
+        analyticsRiderFilter === 'all' ||
+        (order.riderName && order.riderName.toLowerCase().includes(analyticsRiderFilter.toLowerCase())) ||
+        (order.deliveryAgentId && order.deliveryAgentId === analyticsRiderFilter);
+
+      return matchesSearch && matchesStatus && matchesRider;
+    });
+  }, [activePeriodOrders, analyticsSearch, analyticsStatusFilter, analyticsRiderFilter]);
 
   // ---------------------------------------------------------------------------
   // RENDER 1: SMART LOGIN GATEWAY SCREEN (Admin PIN or Rider Mobile Number)
@@ -1466,7 +1533,7 @@ export default function AdminPortalPage() {
               setAnalyticsPeriod('today');
             }}
             className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white cursor-pointer transition-all shadow-xs"
-            title={`Today's Income (00:00 - 23:59). Resets in ${getMidnightResetCountdown()} at 12:00 AM Midnight. Click to inspect ledger.`}
+            title="Today's Income (00:00 - 23:59). Resets at 12:00 AM Midnight. Click to inspect ledger."
           >
             <DollarSign className="w-3.5 h-3.5 text-white/80" />
             <div className="text-left">
@@ -1481,7 +1548,7 @@ export default function AdminPortalPage() {
 
           <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 font-mono text-xs font-bold text-white">
             <Clock className="w-3.5 h-3.5 text-amber-300" />
-            <span>{currentTime}</span>
+            <LiveClock />
           </div>
 
           <button
@@ -1540,7 +1607,15 @@ export default function AdminPortalPage() {
                   </span>
                 </span>
                 <span className="text-xs font-mono text-black/50">
-                  {analyticsPeriod === 'today' ? `Resets at 12:00 AM Midnight (in ${getMidnightResetCountdown()})` : 'Auto-refreshes live'}
+                  {analyticsPeriod === 'today' ? (
+                    <span className="inline-flex items-center space-x-1">
+                      <span>Resets at 12:00 AM Midnight (in </span>
+                      <MidnightCountdown />
+                      <span>)</span>
+                    </span>
+                  ) : (
+                    'Auto-refreshes live'
+                  )}
                 </span>
               </div>
               <h2 className="font-display text-2xl sm:text-3xl uppercase font-black text-banhmi-dark tracking-tight">
@@ -1600,7 +1675,15 @@ export default function AdminPortalPage() {
                 ₹{periodRevenueSum.toFixed(0)}
               </div>
               <span className="text-[11px] font-mono text-white/80">
-                {analyticsPeriod === 'today' ? `Resets at 12:00 AM (${getMidnightResetCountdown()})` : `${daysInCurrentMonth}-Day Monthly Cycle`}
+                {analyticsPeriod === 'today' ? (
+                  <span className="inline-flex items-center space-x-1">
+                    <span>Resets at 12:00 AM (</span>
+                    <MidnightCountdown />
+                    <span>)</span>
+                  </span>
+                ) : (
+                  `${daysInCurrentMonth}-Day Monthly Cycle`
+                )}
               </span>
             </div>
 
@@ -1942,7 +2025,7 @@ export default function AdminPortalPage() {
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white/80 text-[11px] font-mono border border-white/10 flex items-center space-x-1">
                     <Clock className="w-3 h-3 text-amber-300" />
-                    <span>Resets at 12:00 AM Midnight (in {getMidnightResetCountdown()})</span>
+                    <span>Resets at 12:00 AM Midnight (in <MidnightCountdown />)</span>
                   </span>
                 </div>
                 <div className="flex items-baseline space-x-3">

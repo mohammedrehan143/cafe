@@ -218,16 +218,26 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Periodic heartbeat sync for live orders
+  // Periodic heartbeat sync for live orders (lightweight fallback to Realtime stream)
   useEffect(() => {
     const syncOrdersHeartbeat = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       try {
         const res = await fetch('/api/orders', { cache: 'no-store' });
         const data = await res.json();
         if (data.success && data.orders && Array.isArray(data.orders)) {
           const fresh = filterOrdersRetention(data.orders);
           setOrders((prev) => {
-            if (JSON.stringify(prev) !== JSON.stringify(fresh)) {
+            if (prev.length !== fresh.length) {
+              try {
+                localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(fresh));
+              } catch {}
+              return fresh;
+            }
+            // Fast signature check without serializing entire arrays
+            const prevSig = prev.map((o) => `${o.id}:${o.status}:${o.deliveryAgentId}`).join('|');
+            const freshSig = fresh.map((o) => `${o.id}:${o.status}:${o.deliveryAgentId}`).join('|');
+            if (prevSig !== freshSig) {
               try {
                 localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(fresh));
               } catch {}
@@ -239,7 +249,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       } catch {}
     };
 
-    const interval = setInterval(syncOrdersHeartbeat, 2500);
+    const interval = setInterval(syncOrdersHeartbeat, 6000);
     return () => clearInterval(interval);
   }, []);
 
