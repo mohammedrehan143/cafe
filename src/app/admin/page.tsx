@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -52,6 +52,7 @@ import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
 import { Order, OrderStatus, DeliveryMethod, DeliveryAgent } from '@/types/cafe';
 import { CAFE_INFO } from '@/data/cafeData';
+import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
 import OriginalBillReceipt from '@/components/OriginalBillReceipt';
 import BillModal from '@/components/BillModal';
 
@@ -119,9 +120,13 @@ export default function AdminPortalPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [customRiderName, setCustomRiderName] = useState('');
   const [customRiderPhone, setCustomRiderPhone] = useState('');
+  const [isAssigningAgent, setIsAssigningAgent] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
 
   // Delivery Agent Portal State (Rider App Mode)
+  const [riderOrders, setRiderOrders] = useState<Order[]>([]);
+  const [loadingRiderOrders, setLoadingRiderOrders] = useState(false);
+  const [riderOrdersError, setRiderOrdersError] = useState<string | null>(null);
   const [riderOtpInputs, setRiderOtpInputs] = useState<Record<string, string>>({});
   const [riderVerifyingId, setRiderVerifyingId] = useState<string | null>(null);
   const [riderOtpError, setRiderOtpError] = useState<Record<string, string>>({});
@@ -255,6 +260,108 @@ export default function AdminPortalPage() {
       }
     }
   }, [orders, authRole, loggedDeliveryAgent?.id, loggedDeliveryAgent?.phone]);
+
+  // Dedicated query to fetch orders assigned to the logged-in delivery agent from Supabase
+  const fetchRiderOrders = useCallback(async () => {
+    if (!loggedDeliveryAgent?.id) return;
+    try {
+      setLoadingRiderOrders(true);
+      setRiderOrdersError(null);
+      const res = await fetch(
+        `/api/delivery/orders?agentId=${encodeURIComponent(loggedDeliveryAgent.id)}&phone=${encodeURIComponent(loggedDeliveryAgent.phone || '')}`,
+        { cache: 'no-store' }
+      );
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.orders)) {
+        setRiderOrders(data.orders);
+      } else {
+        setRiderOrdersError(data.error || 'Failed to fetch assigned orders.');
+      }
+    } catch (err: any) {
+      console.error('Error fetching rider orders:', err);
+      setRiderOrdersError(err.message || 'Connection error loading orders.');
+    } finally {
+      setLoadingRiderOrders(false);
+    }
+  }, [loggedDeliveryAgent?.id, loggedDeliveryAgent?.phone]);
+
+  // Fetch rider orders on login or reload
+  useEffect(() => {
+    if (authRole === 'delivery_agent' && loggedDeliveryAgent?.id) {
+      fetchRiderOrders();
+    }
+  }, [authRole, loggedDeliveryAgent?.id, fetchRiderOrders]);
+
+  // Realtime Supabase subscription for delivery agent portal
+  useEffect(() => {
+    if (authRole !== 'delivery_agent' || !loggedDeliveryAgent?.id || !isSupabaseConfigured) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`rider-portal-realtime-${loggedDeliveryAgent.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+        },
+        (payload: any) => {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            if (payload.new.delivery_agent_id === loggedDeliveryAgent.id) {
+              const newOrder = formatDbOrderToOrder(payload.new);
+              setRiderOrders((prev) => {
+                const exists = prev.some((o) => o.id === newOrder.id || o.tokenId === newOrder.tokenId);
+                if (exists) return prev;
+                playKitchenChime();
+                triggerDesktopNotification(newOrder, `New Order Assigned #${newOrder.tokenId || newOrder.id}`);
+                return [newOrder, ...prev];
+              });
+            }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedRow = payload.new;
+            if (updatedRow.delivery_agent_id === loggedDeliveryAgent.id) {
+              const parsed = formatDbOrderToOrder(updatedRow);
+              setRiderOrders((prev) => {
+                const exists = prev.some((o) => o.id === parsed.id || o.tokenId === parsed.tokenId);
+                if (exists) {
+                  return prev.map((o) => (o.id === parsed.id || o.tokenId === parsed.tokenId ? parsed : o));
+                } else {
+                  playKitchenChime();
+                  triggerDesktopNotification(parsed, `New Order Assigned #${parsed.tokenId || parsed.id}`);
+                  return [parsed, ...prev];
+                }
+              });
+            } else {
+              // Order reassigned to another agent or unassigned: remove from this agent's view
+              setRiderOrders((prev) =>
+                prev.filter(
+                  (o) =>
+                    o.id !== updatedRow.id &&
+                    o.tokenId !== updatedRow.token_id &&
+                    o.trackingCode !== updatedRow.tracking_code
+                )
+              );
+            }
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const deletedId = payload.old.id || payload.old.tracking_code || payload.old.token_id;
+            setRiderOrders((prev) => prev.filter((o) => o.id !== deletedId && o.tokenId !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    // Heartbeat poll every 4 seconds
+    const interval = setInterval(() => {
+      fetchRiderOrders();
+    }, 4000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [authRole, loggedDeliveryAgent?.id, fetchRiderOrders]);
 
   // Handle PIN or Mobile Number Login Verification (Unified Smart Gateway)
   const handleLoginSubmit = async (e?: React.FormEvent) => {
@@ -443,7 +550,7 @@ export default function AdminPortalPage() {
     }
   };
 
-  // Handle Dispatching Order to a Delivery Agent
+  // Handle Dispatching / Assigning / Reassigning Order to a Delivery Agent
   const handleConfirmDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dispatchModalOrder) return;
@@ -452,7 +559,7 @@ export default function AdminPortalPage() {
     let riderPhone = customRiderPhone.trim();
     let agentId = selectedAgentId;
 
-    if (selectedAgentId && selectedAgentId !== 'custom') {
+    if (selectedAgentId && selectedAgentId !== 'custom' && selectedAgentId !== 'none') {
       const matchedAgent = deliveryAgents.find((a) => a.id === selectedAgentId);
       if (matchedAgent) {
         riderName = matchedAgent.name;
@@ -461,22 +568,62 @@ export default function AdminPortalPage() {
       }
     }
 
-    if (!riderName || !riderPhone) {
+    if (selectedAgentId === 'custom') {
+      if (!riderName || !riderPhone) {
+        setDispatchError('Please enter rider name and mobile number.');
+        return;
+      }
+      const cleanCustomPhone = riderPhone.replace(/[^0-9]/g, '').slice(-10);
+      if (cleanCustomPhone.length < 10) {
+        setDispatchError('Please enter a valid 10-digit mobile number.');
+        return;
+      }
+    } else if (selectedAgentId !== 'none' && !agentId) {
       setDispatchError('Please select a delivery partner or enter rider details.');
       return;
     }
 
-    await updateOrderStatus(dispatchModalOrder.id, 'delivering', {
-      riderName,
-      riderPhone,
-      agentId,
-    });
-
-    setDispatchModalOrder(null);
-    setSelectedAgentId('');
-    setCustomRiderName('');
-    setCustomRiderPhone('');
+    setIsAssigningAgent(true);
     setDispatchError(null);
+
+    try {
+      let finalAgentId: string | undefined = agentId;
+
+      if (selectedAgentId === 'custom') {
+        const regRes = await fetch('/api/delivery/agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: riderName, phone: riderPhone }),
+        });
+        const regData = await regRes.json();
+        if (!regRes.ok || !regData.success) {
+          throw new Error(regData.error || 'Failed to register custom delivery agent.');
+        }
+        finalAgentId = regData.agent.id;
+        await refreshDeliveryAgents();
+      } else if (selectedAgentId === 'none') {
+        finalAgentId = undefined;
+        riderName = '';
+        riderPhone = '';
+      }
+
+      await updateOrderStatus(dispatchModalOrder.id, 'delivering', {
+        riderName,
+        riderPhone,
+        agentId: finalAgentId,
+      });
+
+      setDispatchModalOrder(null);
+      setSelectedAgentId('');
+      setCustomRiderName('');
+      setCustomRiderPhone('');
+      setDispatchError(null);
+    } catch (err: any) {
+      console.error('Dispatch assignment error:', err);
+      setDispatchError(err.message || 'Failed to assign delivery agent. Please check connection and try again.');
+    } finally {
+      setIsAssigningAgent(false);
+    }
   };
 
   // Delivery Agent Doorstep OTP Verification Handler
@@ -516,6 +663,9 @@ export default function AdminPortalPage() {
           ordersDeliveredCount: loggedDeliveryAgent.ordersDeliveredCount + 1,
         });
       }
+
+      // Refresh orders in rider portal immediately
+      fetchRiderOrders();
 
       setTimeout(() => {
         setRiderOtpSuccess((prev) => {
@@ -607,16 +757,9 @@ export default function AdminPortalPage() {
     return matchesStatus && matchesDelivery && matchesSearch;
   });
 
-  // Filter Delivery Agent Assigned Orders
-  const agentPhoneClean = (loggedDeliveryAgent?.phone || '').replace(/[^0-9]/g, '').slice(-10);
-  const riderAssignedOrders = orders.filter((o) => {
-    if (loggedDeliveryAgent?.id && o.deliveryAgentId === loggedDeliveryAgent.id) return true;
-    if (agentPhoneClean && o.riderPhone && o.riderPhone.replace(/[^0-9]/g, '').endsWith(agentPhoneClean)) return true;
-    return false;
-  });
-
-  const riderActiveDeliveries = riderAssignedOrders.filter((o) => o.status === 'delivering' || o.status === 'ready');
-  const riderCompletedDeliveries = riderAssignedOrders.filter((o) => o.status === 'completed');
+  // Delivery Agent Portal Assigned Orders (Directly fetched and synced for this agent from database)
+  const riderActiveDeliveries = riderOrders.filter((o) => o.status !== 'completed' && o.status !== 'cancelled');
+  const riderCompletedDeliveries = riderOrders.filter((o) => o.status === 'completed');
 
   // ---------------------------------------------------------------------------
   // 2. DYNAMIC MONTHLY CYCLE & TOTAL INCOME CALCULATION (Dynamic days in month)
@@ -816,6 +959,16 @@ export default function AdminPortalPage() {
             </div>
 
             <button
+              onClick={() => fetchRiderOrders()}
+              disabled={loadingRiderOrders}
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer disabled:opacity-50"
+              title="Refresh Assigned Orders"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingRiderOrders ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            <button
               onClick={handleLogout}
               className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-rose-600/80 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
             >
@@ -1001,10 +1154,17 @@ export default function AdminPortalPage() {
                       </div>
 
                       <div className="pt-2 border-t border-cream-200">
-                        {isReady && (
+                        {!isDelivering && (
                           <button
                             type="button"
-                            onClick={() => updateOrderStatus(order.id, 'delivering')}
+                            onClick={async () => {
+                              try {
+                                await updateOrderStatus(order.id, 'delivering');
+                                await fetchRiderOrders();
+                              } catch (err: any) {
+                                setRiderOtpError((prev) => ({ ...prev, [order.id]: err.message || 'Failed to update delivery status.' }));
+                              }
+                            }}
                             className="w-full py-3.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-display text-base uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-98 cursor-pointer"
                           >
                             <Bike className="w-5 h-5" />
@@ -1848,10 +2008,22 @@ export default function AdminPortalPage() {
                       )}
                     </div>
 
-                    {!isPickup && order.riderName && (
-                      <div className="text-[11px] text-emerald-800 font-bold flex items-center space-x-1">
-                        <Bike className="w-3 h-3" />
-                        <span>Rider: {order.riderName} ({order.riderPhone})</span>
+                    {!isPickup && (order.deliveryAgentId || order.riderName) && (
+                      <div className="text-[11px] text-emerald-800 font-bold flex items-center justify-between bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                        <span className="flex items-center space-x-1.5">
+                          <Bike className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          <span>
+                            Rider: {deliveryAgents.find((a) => a.id === order.deliveryAgentId)?.name || order.riderName || order.deliveryAgentId}
+                            {deliveryAgents.find((a) => a.id === order.deliveryAgentId)?.phone
+                              ? ` (+91 ${deliveryAgents.find((a) => a.id === order.deliveryAgentId)?.phone})`
+                              : order.riderPhone
+                              ? ` (${order.riderPhone})`
+                              : ''}
+                          </span>
+                        </span>
+                        <span className="text-[9px] font-mono uppercase bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded font-bold">
+                          Assigned
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1869,13 +2041,29 @@ export default function AdminPortalPage() {
                     )}
 
                     {isPreparing && (
-                      <button
-                        type="button"
-                        onClick={() => updateOrderStatus(order.id, 'ready')}
-                        className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
-                      >
-                        Mark Ready & Packed
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'ready')}
+                          className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
+                        >
+                          Mark Ready & Packed
+                        </button>
+                        {!isPickup && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDispatchModalOrder(order);
+                              setSelectedAgentId(order.deliveryAgentId || deliveryAgents[0]?.id || 'custom');
+                              setDispatchError(null);
+                            }}
+                            className="p-2.5 rounded-xl bg-orange-100 hover:bg-orange-200 text-orange-900 font-mono text-xs font-bold uppercase flex items-center justify-center space-x-1 transition-colors border border-orange-300 cursor-pointer"
+                            title={order.deliveryAgentId ? 'Reassign Rider' : 'Assign Rider'}
+                          >
+                            <Bike className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {/* Delivery Order Dispatch Trigger */}
@@ -1884,12 +2072,13 @@ export default function AdminPortalPage() {
                         type="button"
                         onClick={() => {
                           setDispatchModalOrder(order);
-                          setSelectedAgentId(deliveryAgents[0]?.id || 'custom');
+                          setSelectedAgentId(order.deliveryAgentId || deliveryAgents[0]?.id || 'custom');
+                          setDispatchError(null);
                         }}
                         className="w-full py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-1.5 transition-colors shadow-xs cursor-pointer"
                       >
                         <Bike className="w-4 h-4" />
-                        <span>Assign Rider & Dispatch</span>
+                        <span>{order.deliveryAgentId ? 'Reassign Rider & Dispatch' : 'Assign Rider & Dispatch'}</span>
                       </button>
                     )}
 
@@ -1954,14 +2143,28 @@ export default function AdminPortalPage() {
                     )}
 
                     {isDelivering && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'completed')}
-                          className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
-                        >
-                          Manual Complete
-                        </button>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDispatchModalOrder(order);
+                              setSelectedAgentId(order.deliveryAgentId || deliveryAgents[0]?.id || 'custom');
+                              setDispatchError(null);
+                            }}
+                            className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-1.5 transition-colors shadow-xs cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Reassign Rider</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateOrderStatus(order.id, 'completed')}
+                            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
+                          >
+                            Complete
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -2008,11 +2211,14 @@ export default function AdminPortalPage() {
                 <div className="flex items-center space-x-2">
                   <Bike className="w-5 h-5 text-[#4A2818]" />
                   <h3 className="font-display text-xl uppercase font-bold text-banhmi-dark">
-                    Assign Delivery Rider
+                    {dispatchModalOrder.deliveryAgentId ? 'Reassign Delivery Rider' : 'Assign Delivery Rider'}
                   </h3>
                 </div>
                 <button
-                  onClick={() => setDispatchModalOrder(null)}
+                  onClick={() => {
+                    setDispatchModalOrder(null);
+                    setDispatchError(null);
+                  }}
                   className="p-1 text-black/40 hover:text-black cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -2035,6 +2241,9 @@ export default function AdminPortalPage() {
                       </option>
                     ))}
                     <option value="custom">+ Enter Custom Rider</option>
+                    {dispatchModalOrder.deliveryAgentId && (
+                      <option value="none">-- Unassign / Clear Rider --</option>
+                    )}
                   </select>
                 </div>
 
@@ -2066,16 +2275,27 @@ export default function AdminPortalPage() {
                 <div className="flex items-center gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => setDispatchModalOrder(null)}
+                    onClick={() => {
+                      setDispatchModalOrder(null);
+                      setDispatchError(null);
+                    }}
                     className="flex-1 py-2.5 rounded-xl bg-cream-100 hover:bg-cream-200 text-banhmi-dark font-mono text-xs font-bold uppercase transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase transition-colors shadow-sm cursor-pointer"
+                    disabled={isAssigningAgent}
+                    className="flex-1 py-2.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase transition-colors shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-1.5"
                   >
-                    Dispatch Now
+                    {isAssigningAgent ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <span>{dispatchModalOrder.deliveryAgentId ? 'Update Assignment' : 'Dispatch Now'}</span>
+                    )}
                   </button>
                 </div>
               </form>

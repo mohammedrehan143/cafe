@@ -68,43 +68,47 @@ export async function POST(req: NextRequest) {
 
     // 2. Mark Order as Completed in Supabase
     if (isSupabaseConfigured) {
-      try {
-        const updatePayload: any = {
-          status: 'completed',
-          delivered_at: deliveredAtISO,
-          updated_at: deliveredAtISO,
-        };
+      const updatePayload: Record<string, any> = {
+        status: 'completed',
+        delivered_at: deliveredAtISO,
+        updated_at: deliveredAtISO,
+      };
 
-        if (agentId) updatePayload.delivery_agent_id = agentId;
+      if (agentId) {
+        updatePayload.delivery_agent_id = sanitizeString(agentId, 60);
+      }
 
-        await supabase
-          .from('orders')
-          .update(updatePayload)
-          .or(`id.ilike.%${cleanOrderId}%,tracking_code.ilike.%${cleanOrderId}%,token_id.ilike.%${cleanOrderId}%`);
+      const { data: updatedOrders, error: updateOrderErr } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .or(`id.eq.${cleanOrderId},tracking_code.eq.${cleanOrderId},token_id.eq.${cleanOrderId},id.ilike.%${cleanOrderId}%,tracking_code.ilike.%${cleanOrderId}%,token_id.ilike.%${cleanOrderId}%`)
+        .select();
 
-        // 3. Increment Delivery Agent's orders_delivered_count in database
-        if (cleanPhone || agentId) {
-          // Fetch current agent row
-          const agentQuery = supabase.from('delivery_agents').select('id, orders_delivered_count');
-          if (agentId) agentQuery.eq('id', agentId);
-          else agentQuery.eq('phone', cleanPhone);
+      if (updateOrderErr) {
+        console.error('Supabase OTP completion update error:', updateOrderErr);
+        return NextResponse.json({ success: false, error: `Failed to complete order in database: ${updateOrderErr.message}` }, { status: 500 });
+      }
 
-          const { data: currentAgent } = await agentQuery.maybeSingle();
+      // 3. Increment Delivery Agent's orders_delivered_count in database
+      const effectiveAgentId = agentId || (orderData?.delivery_agent_id);
+      if (effectiveAgentId || cleanPhone) {
+        const agentQuery = supabase.from('delivery_agents').select('id, orders_delivered_count');
+        if (effectiveAgentId) agentQuery.eq('id', effectiveAgentId);
+        else agentQuery.or(`phone.eq.${cleanPhone},phone.ilike.%${cleanPhone}%`);
 
-          if (currentAgent) {
-            const newCount = (currentAgent.orders_delivered_count || 0) + 1;
-            await supabase
-              .from('delivery_agents')
-              .update({
-                orders_delivered_count: newCount,
-                status: 'active',
-                updated_at: deliveredAtISO,
-              })
-              .eq('id', currentAgent.id);
-          }
+        const { data: currentAgent } = await agentQuery.maybeSingle();
+
+        if (currentAgent) {
+          const newCount = (currentAgent.orders_delivered_count || 0) + 1;
+          await supabase
+            .from('delivery_agents')
+            .update({
+              orders_delivered_count: newCount,
+              status: 'active',
+              updated_at: deliveredAtISO,
+            })
+            .eq('id', currentAgent.id);
         }
-      } catch (err) {
-        console.error('Supabase OTP completion update error:', err);
       }
     }
 

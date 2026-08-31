@@ -146,70 +146,155 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const limit = checkRateLimit(req, 40, 60);
+  const limit = checkRateLimit(req, 60, 60);
   if (!limit.allowed) {
     return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 });
   }
 
   try {
     const { id } = await params;
-    const lookupId = sanitizeString(decodeURIComponent(id).trim(), 40);
+    const rawLookup = decodeURIComponent(id).trim();
+    const lookupId = sanitizeString(rawLookup, 60);
     const body = await req.json();
     const { status, riderName, riderPhone, agentId, rating, feedbackTags, feedbackNote } = body;
 
     const validStatuses: OrderStatus[] = ['new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled'];
     if (status && !validStatuses.includes(status)) {
-      return NextResponse.json({ success: false, error: 'Invalid order status' }, { status: 400 });
+      return NextResponse.json({ success: false, error: `Invalid order status: ${status}` }, { status: 400 });
     }
+
+    const nowISO = new Date().toISOString();
 
     if (isSupabaseConfigured) {
-      try {
-        const nowISO = new Date().toISOString();
-        const updatePayload: any = { updated_at: nowISO };
-        if (status) updatePayload.status = status;
-        if (riderName) updatePayload.rider_name = sanitizeString(riderName, 60);
-        if (riderPhone) updatePayload.rider_phone = sanitizeString(riderPhone, 30);
-        if (agentId) updatePayload.delivery_agent_id = sanitizeString(agentId, 40);
-        if (status === 'completed') updatePayload.delivered_at = nowISO;
-        if (rating !== undefined) updatePayload.rating = Number(rating);
-        if (Array.isArray(feedbackTags)) updatePayload.feedback_tags = feedbackTags;
-        if (feedbackNote) updatePayload.feedback_note = sanitizeString(feedbackNote, 500);
+      // 1. Find the target order in Supabase
+      const { data: existingOrders, error: findErr } = await supabase
+        .from('orders')
+        .select('*')
+        .or(`id.eq.${lookupId},token_id.eq.${lookupId},tracking_code.eq.${lookupId},id.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%`)
+        .limit(1);
 
-        const { error } = await supabase
-          .from('orders')
-          .update(updatePayload)
-          .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`);
+      if (findErr) {
+        return NextResponse.json({ success: false, error: `Database search error: ${findErr.message}` }, { status: 500 });
+      }
 
-        if (error) {
-          // Fallback if specific rating or feedback columns don't exist yet
-          const fallbackPayload: any = { updated_at: nowISO };
-          if (status) fallbackPayload.status = status;
-          if (status === 'completed') fallbackPayload.delivered_at = nowISO;
+      if (!existingOrders || existingOrders.length === 0) {
+        return NextResponse.json({ success: false, error: `Order #${lookupId} not found in database.` }, { status: 404 });
+      }
 
-          if (rating || feedbackNote || feedbackTags) {
-            const { data: currentData } = await supabase
-              .from('orders')
-              .select('customer_instructions')
-              .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`)
-              .maybeSingle();
+      const targetOrder = existingOrders[0];
 
-            const feedbackSummary = `[FEEDBACK: Rating=${rating || 5} | Tags=${(feedbackTags || []).join(',')} | Note=${feedbackNote || ''}]`;
-            const baseNotes = (currentData?.customer_instructions || '').replace(/\[FEEDBACK:.*?\]/g, '').trim();
-            fallbackPayload.customer_instructions = `${baseNotes} ${feedbackSummary}`.trim();
+      // 2. Validate agent ID if provided
+      let resolvedAgentId: string | null = targetOrder.delivery_agent_id;
+      if (agentId !== undefined) {
+        if (!agentId || agentId === 'none' || agentId === 'null') {
+          resolvedAgentId = null;
+        } else {
+          const cleanAgentId = sanitizeString(String(agentId).trim(), 60);
+          // Verify agent exists in delivery_agents table
+          const { data: agentData, error: agentErr } = await supabase
+            .from('delivery_agents')
+            .select('id, name, phone')
+            .eq('id', cleanAgentId)
+            .maybeSingle();
+
+          if (agentErr) {
+            return NextResponse.json(
+              { success: false, error: `Delivery agent lookup error: ${agentErr.message}` },
+              { status: 500 }
+            );
           }
 
-          await supabase
-            .from('orders')
-            .update(fallbackPayload)
-            .or(`id.ilike.%${lookupId}%,tracking_code.ilike.%${lookupId}%,token_id.ilike.%${lookupId}%`);
+          if (!agentData) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `Delivery Agent with ID "${cleanAgentId}" does not exist in the database. Please register the agent first.`,
+              },
+              { status: 404 }
+            );
+          }
+
+          resolvedAgentId = agentData.id;
         }
-      } catch (err: any) {
-        console.error('Supabase update failed:', err);
       }
+
+      // 3. Construct update payload strictly using existing table columns
+      const updatePayload: Record<string, any> = {
+        updated_at: nowISO,
+      };
+
+      if (status) {
+        updatePayload.status = status;
+      }
+
+      if (agentId !== undefined) {
+        updatePayload.delivery_agent_id = resolvedAgentId;
+      }
+
+      if (status === 'completed') {
+        updatePayload.delivered_at = nowISO;
+      }
+
+      // If rider info or feedback notes are provided, store safely in customer_instructions
+      if (riderName || riderPhone || rating || feedbackNote || feedbackTags) {
+        let notes = targetOrder.customer_instructions || '';
+
+        if (riderName) {
+          notes = notes.replace(/\[RIDER:.*?\]/g, '').trim();
+          notes = `${notes} [RIDER: ${sanitizeString(riderName, 60)} | ${sanitizeString(riderPhone || '', 30)}]`.trim();
+        }
+
+        if (rating || feedbackNote || feedbackTags) {
+          const feedbackSummary = `[FEEDBACK: Rating=${rating || 5} | Tags=${(feedbackTags || []).join(',')} | Note=${feedbackNote || ''}]`;
+          notes = notes.replace(/\[FEEDBACK:.*?\]/g, '').trim();
+          notes = `${notes} ${feedbackSummary}`.trim();
+        }
+
+        updatePayload.customer_instructions = notes;
+      }
+
+      // 4. Perform Supabase update with select confirmation
+      const { data: updatedRows, error: updateErr } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .eq('id', targetOrder.id)
+        .select();
+
+      if (updateErr) {
+        console.error('Supabase order update failed:', updateErr);
+        return NextResponse.json(
+          { success: false, error: `Supabase order update failed: ${updateErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      if (!updatedRows || updatedRows.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Order update could not be committed in Supabase.' },
+          { status: 500 }
+        );
+      }
+
+      const formattedOrder = formatDbOrderToOrder(updatedRows[0]);
+      return NextResponse.json({
+        success: true,
+        order: formattedOrder,
+        agentId: resolvedAgentId,
+        status: updatePayload.status || targetOrder.status,
+        message: 'Order updated successfully in Supabase.',
+      });
     }
 
-    return NextResponse.json({ success: true, status, riderName, riderPhone, agentId, rating, feedbackTags, feedbackNote });
+    // Local / In-memory fallback
+    return NextResponse.json({
+      success: true,
+      status,
+      agentId,
+      riderName,
+      riderPhone,
+      message: 'Order updated in local memory.',
+    });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message || 'Order update failed' }, { status: 500 });
   }
 }

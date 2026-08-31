@@ -463,8 +463,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     status: OrderStatus,
     riderDetails?: { riderName?: string; riderPhone?: string; agentId?: string }
   ) => {
+    let resolvedOrder: Order | null = null;
     try {
-      await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+      const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -474,18 +475,29 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           agentId: riderDetails?.agentId,
         }),
       });
-    } catch {
-      // offline
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update order status');
+      }
+      if (data.order) {
+        resolvedOrder = data.order;
+      }
+    } catch (err: any) {
+      console.error('updateOrderStatus error:', err);
+      throw err;
     }
 
     const updated = orders.map((o) => {
       if (o.id === orderId || o.tokenId === orderId) {
+        if (resolvedOrder) {
+          return { ...o, ...resolvedOrder };
+        }
         return {
           ...o,
           status,
           ...(riderDetails?.riderName ? { riderName: riderDetails.riderName } : {}),
           ...(riderDetails?.riderPhone ? { riderPhone: riderDetails.riderPhone } : {}),
-          ...(riderDetails?.agentId ? { deliveryAgentId: riderDetails.agentId } : {}),
+          ...(riderDetails?.agentId !== undefined ? { deliveryAgentId: riderDetails.agentId } : {}),
           ...(status === 'completed' ? { deliveredAt: new Date().toISOString() } : {}),
         };
       }
@@ -495,18 +507,20 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     if (activeTrackingOrder && (activeTrackingOrder.id === orderId || activeTrackingOrder.tokenId === orderId)) {
       setActiveTrackingOrder({
         ...activeTrackingOrder,
-        status,
-        ...(riderDetails?.riderName ? { riderName: riderDetails.riderName } : {}),
-        ...(riderDetails?.riderPhone ? { riderPhone: riderDetails.riderPhone } : {}),
-        ...(riderDetails?.agentId ? { deliveryAgentId: riderDetails.agentId } : {}),
-        ...(status === 'completed' ? { deliveredAt: new Date().toISOString() } : {}),
+        ...(resolvedOrder || {
+          status,
+          ...(riderDetails?.riderName ? { riderName: riderDetails.riderName } : {}),
+          ...(riderDetails?.riderPhone ? { riderPhone: riderDetails.riderPhone } : {}),
+          ...(riderDetails?.agentId !== undefined ? { deliveryAgentId: riderDetails.agentId } : {}),
+          ...(status === 'completed' ? { deliveredAt: new Date().toISOString() } : {}),
+        }),
       });
     }
   };
 
   // Assign delivery agent to order
   const assignDeliveryAgent = async (orderId: string, agent: DeliveryAgent) => {
-    await updateOrderStatus(orderId, 'delivering', {
+    return await updateOrderStatus(orderId, 'delivering', {
       riderName: agent.name,
       riderPhone: agent.phone,
       agentId: agent.id,
