@@ -1465,12 +1465,12 @@ export default function AdminPortalPage() {
               setAdminActiveTab('analytics');
               setAnalyticsPeriod('today');
             }}
-            className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-white cursor-pointer transition-all shadow-xs"
+            className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white cursor-pointer transition-all shadow-xs"
             title={`Today's Income (00:00 - 23:59). Resets in ${getMidnightResetCountdown()} at 12:00 AM Midnight. Click to inspect ledger.`}
           >
-            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+            <DollarSign className="w-3.5 h-3.5 text-white/80" />
             <div className="text-left">
-              <span className="text-[9px] font-mono text-emerald-300 block uppercase font-bold tracking-wider leading-none">
+              <span className="text-[9px] font-mono text-white/70 block uppercase font-bold tracking-wider leading-none">
                 Today&apos;s Income
               </span>
               <span className="font-mono text-xs sm:text-sm font-black text-white leading-tight">
@@ -1593,10 +1593,10 @@ export default function AdminPortalPage() {
 
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="col-span-2 lg:col-span-1 p-5 rounded-3xl bg-[#4A2818] text-white border border-[#2E1509] shadow-warm-md">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-white/60 font-bold block">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-white/70 font-bold block">
                 {analyticsPeriod === 'today' ? "Today's Gross Income" : analyticsPeriod === 'month' ? `${currentMonthName} Income` : 'Total Income'}
               </span>
-              <div className="font-display text-3xl uppercase font-black text-emerald-300 mt-1">
+              <div className="font-display text-3xl uppercase font-black text-white mt-1">
                 ₹{periodRevenueSum.toFixed(0)}
               </div>
               <span className="text-[11px] font-mono text-white/80">
@@ -1937,9 +1937,8 @@ export default function AdminPortalPage() {
             <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
               <div className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold uppercase flex items-center space-x-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    <span>Today&apos;s Live Kitchen Income</span>
+                  <span className="px-3 py-1 rounded-full bg-white/10 text-white border border-white/15 text-xs font-mono font-bold uppercase tracking-wider">
+                    Today&apos;s Live Kitchen Income
                   </span>
                   <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white/80 text-[11px] font-mono border border-white/10 flex items-center space-x-1">
                     <Clock className="w-3 h-3 text-amber-300" />
@@ -1947,7 +1946,7 @@ export default function AdminPortalPage() {
                   </span>
                 </div>
                 <div className="flex items-baseline space-x-3">
-                  <span className="font-display text-4xl sm:text-5xl uppercase font-black text-emerald-300 tracking-tight">
+                  <span className="font-display text-4xl sm:text-5xl uppercase font-black text-white tracking-tight">
                     ₹{todaysIncome.toFixed(0)}
                   </span>
                   <span className="text-xs font-mono text-white/60">
@@ -1959,7 +1958,7 @@ export default function AdminPortalPage() {
               {/* Quick Operational Metrics */}
               <div className="grid grid-cols-3 gap-3 self-stretch lg:self-auto sm:min-w-[380px]">
                 <div className="p-3.5 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xs text-center">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/60 font-bold block">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/70 font-bold block">
                     Tickets Today
                   </span>
                   <span className="font-display text-2xl font-black text-white mt-0.5 block">
@@ -1978,14 +1977,14 @@ export default function AdminPortalPage() {
                   <span className="text-[9px] font-mono text-emerald-300/80">Completed</span>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 backdrop-blur-xs text-center">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 font-bold block">
+                <div className="p-3.5 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xs text-center">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/70 font-bold block">
                     In Kitchen
                   </span>
-                  <span className="font-display text-2xl font-black text-amber-300 mt-0.5 block">
+                  <span className="font-display text-2xl font-black text-white mt-0.5 block">
                     {todaysCookingCount}
                   </span>
-                  <span className="text-[9px] font-mono text-amber-300/80">Active Cooking</span>
+                  <span className="text-[9px] font-mono text-white/50">Active Cooking</span>
                 </div>
               </div>
             </div>
