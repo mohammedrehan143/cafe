@@ -6,16 +6,18 @@ import "./globals.css";
 
 const asapCondensed = Asap_Condensed({
   subsets: ["latin"],
-  weight: ["400", "600", "700", "800", "900"],
+  weight: ["600", "700", "900"],
   variable: "--font-asap",
   display: "swap",
+  preload: true,
 });
 
 const poppins = Poppins({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "600", "700"],
   variable: "--font-poppins",
   display: "swap",
+  preload: true,
 });
 
 const spaceMono = Space_Mono({
@@ -27,14 +29,14 @@ const spaceMono = Space_Mono({
 
 const dancingScript = Dancing_Script({
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
+  weight: ["700"],
   variable: "--font-calligraphy",
   display: "swap",
 });
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
-  weight: ["400", "600", "700", "800", "900"],
+  weight: ["700", "900"],
   style: ["normal", "italic"],
   variable: "--font-serif",
   display: "swap",

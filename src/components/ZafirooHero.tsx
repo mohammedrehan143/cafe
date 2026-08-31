@@ -106,6 +106,7 @@ export default function ZafirooHero() {
           loop
           muted
           playsInline
+          preload="none"
           poster={currentScene.poster}
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none"
         >

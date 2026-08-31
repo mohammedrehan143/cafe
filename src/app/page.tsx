@@ -1,16 +1,18 @@
 'use client';
 
 import React, { useState } from 'react';
-import Preloader from '@/components/Preloader';
+import dynamic from 'next/dynamic';
 import ZafirooHero from '@/components/ZafirooHero';
 import BestPicksSection from '@/components/BestPicksSection';
 import TestimonialsSection from '@/components/TestimonialsSection';
 import ZafirooFooter from '@/components/ZafirooFooter';
-import CartDrawer from '@/components/CartDrawer';
-import CheckoutModal from '@/components/CheckoutModal';
-import OrderTrackingModal from '@/components/OrderTrackingModal';
-import MenuDetailModal from '@/components/MenuDetailModal';
 import { MenuItem } from '@/types/cafe';
+
+// Dynamically load interactive modals only when needed to keep initial mobile JS tiny
+const CartDrawer = dynamic(() => import('@/components/CartDrawer'), { ssr: false });
+const CheckoutModal = dynamic(() => import('@/components/CheckoutModal'), { ssr: false });
+const OrderTrackingModal = dynamic(() => import('@/components/OrderTrackingModal'), { ssr: false });
+const MenuDetailModal = dynamic(() => import('@/components/MenuDetailModal'), { ssr: false });
 
 export default function Home() {
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
@@ -25,30 +27,29 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#FFF8F0] text-[#1C1917] relative selection:bg-[#4A2818] selection:text-white">
-      {/* 1. Opening Preloader Animation */}
-      <Preloader />
-
-      {/* 2. Zafiroo Hero Section with Cinematic Background Video */}
+      {/* 1. Zafiroo Hero Section with Cinematic Background */}
       <ZafirooHero />
 
-      {/* 3. Zafiroo Best Picks Curated Spotlight (Add to Cart / Customizer) */}
+      {/* 2. Zafiroo Best Picks Curated Spotlight (Add to Cart / Customizer) */}
       <BestPicksSection onSelectItem={handleSelectMenuItem} />
 
-      {/* 4. Testimonials & Social Acclaim */}
+      {/* 3. Testimonials & Social Acclaim */}
       <TestimonialsSection />
 
-      {/* 5. Zafiroo Gourmet Cafe Footer */}
+      {/* 4. Zafiroo Gourmet Cafe Footer */}
       <ZafirooFooter />
 
-      {/* Interactive Cart, Checkout, Live Tracker, and Customizer Modals */}
+      {/* Interactive Cart, Checkout, Live Tracker, and Customizer Modals (Loaded On-Demand) */}
       <CartDrawer />
       <CheckoutModal />
       <OrderTrackingModal />
-      <MenuDetailModal
-        item={selectedMenuItem}
-        isOpen={!!selectedMenuItem}
-        onClose={handleCloseMenuModal}
-      />
+      {selectedMenuItem && (
+        <MenuDetailModal
+          item={selectedMenuItem}
+          isOpen={!!selectedMenuItem}
+          onClose={handleCloseMenuModal}
+        />
+      )}
     </main>
   );
 }
