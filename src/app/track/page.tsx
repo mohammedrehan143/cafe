@@ -563,12 +563,14 @@ function TrackerContent() {
                       onClick={() => {
                         const otp = currentOrder.deliveryOtp || '4829';
                         const token = currentOrder.tokenId || currentOrder.id;
-                        const msg = `*Zafiroo Delivery OTP Verification*\n\nOrder Token: #${token}\nDelivery OTP: *${otp}*\n\nShare this OTP with your rider upon doorstep arrival.`;
-                        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                        const phone = (currentOrder.customer.phone || '').replace(/[^0-9]/g, '').slice(-10);
+                        const msg = `🛵 *Zafiroo Cafe - Order Delivery OTP*\n\nOrder: #${token}\n🔢 *Your 4-Digit Delivery OTP:* *${otp}*\n\nShare this code with your delivery partner at your doorstep to verify handover.`;
+                        const url = phone ? `https://wa.me/91${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                        window.open(url, '_blank');
                       }}
                       className="px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-mono font-bold flex items-center space-x-2 transition-all shadow-md active:scale-95 cursor-pointer"
                     >
-                      <span>Send via WhatsApp</span>
+                      <span>📲 Send to my WhatsApp</span>
                     </button>
                   </div>
                 </div>

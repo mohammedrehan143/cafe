@@ -1122,21 +1122,34 @@ export default function AdminPortalPage() {
                             <span>{order.customer.phone}</span>
                           </div>
 
-                          <div className="pt-2 flex items-center gap-2">
+                          <div className="pt-2 flex flex-wrap items-center gap-2">
                             <a
                               href={`tel:${order.customer.phone.replace(/[^0-9+]/g, '')}`}
                               className="px-3 py-1.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
                             >
                               <Phone className="w-3 h-3" />
-                              <span>Call Customer</span>
+                              <span>Call</span>
                             </a>
                             <a
-                              href={`https://wa.me/${order.customer.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi ${order.customer.name}, I am your Zafiroo delivery partner with your order #${order.tokenId || order.id}. I am on my way!`)}`}
+                              href={`https://wa.me/91${order.customer.phone.replace(/[^0-9]/g, '').slice(-10)}?text=${encodeURIComponent(
+                                `🛵 *Zafiroo Cafe - Order Dispatched!*\n\nHi *${order.customer.name}*,\nYour order *#${order.tokenId || order.id}* is on its way!\n\n🔢 *YOUR DELIVERY OTP:* *${order.deliveryOtp || '1234'}*\n_(Please share this 4-digit code with me upon doorstep arrival to verify delivery)_\n\n🚴 *Rider:* ${loggedDeliveryAgent.name} (+91 ${loggedDeliveryAgent.phone})\n📍 *Live Tracker:* ${typeof window !== 'undefined' ? window.location.origin : 'https://zafiroo.com'}/track?id=${order.tokenId || order.id}`
+                              )}`}
                               target="_blank"
                               rel="noreferrer"
                               className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
+                              title="Send Order & OTP via WhatsApp"
                             >
-                              <span>WhatsApp</span>
+                              <span>📲 WhatsApp OTP</span>
+                            </a>
+                            <a
+                              href={`sms:+91${order.customer.phone.replace(/[^0-9]/g, '').slice(-10)}?body=${encodeURIComponent(
+                                `Zafiroo Order #${order.tokenId || order.id} is OUT FOR DELIVERY! Your 4-Digit Delivery OTP is: ${order.deliveryOtp || '1234'}. Rider: ${loggedDeliveryAgent.name}`
+                              )}`}
+                              className="px-3 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
+                              title="Send OTP via SMS"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>SMS OTP</span>
                             </a>
                           </div>
                         </div>

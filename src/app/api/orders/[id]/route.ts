@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supa
 import { INITIAL_ORDERS } from '@/data/cafeData';
 import { Order, OrderStatus } from '@/types/cafe';
 import { checkRateLimit, sanitizeString } from '@/lib/security';
+import { sendAutomaticOtpNotification } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -276,11 +277,37 @@ export async function PATCH(
       }
 
       const formattedOrder = formatDbOrderToOrder(updatedRows[0]);
+
+      // 5. Automatic WhatsApp / SMS OTP Notification when order is dispatched
+      let notificationResult = null;
+      if (
+        (status === 'delivering' || updatePayload.status === 'delivering') &&
+        updatedRows[0].delivery_otp &&
+        updatedRows[0].customer_phone
+      ) {
+        try {
+          notificationResult = await sendAutomaticOtpNotification({
+            orderId: updatedRows[0].id,
+            tokenId: updatedRows[0].token_id || updatedRows[0].tracking_code,
+            customerName: updatedRows[0].customer_name || 'Valued Customer',
+            customerPhone: updatedRows[0].customer_phone,
+            deliveryOtp: updatedRows[0].delivery_otp,
+            riderName: riderName || (resolvedAgentId ? 'Assigned Delivery Partner' : undefined),
+            riderPhone: riderPhone || undefined,
+            address: updatedRows[0].customer_address || undefined,
+            total: updatedRows[0].total || undefined,
+          });
+        } catch (notifErr: any) {
+          console.warn('Automated dispatch OTP notification warning:', notifErr.message);
+        }
+      }
+
       return NextResponse.json({
         success: true,
         order: formattedOrder,
         agentId: resolvedAgentId,
         status: updatePayload.status || targetOrder.status,
+        notification: notificationResult,
         message: 'Order updated successfully in Supabase.',
       });
     }
