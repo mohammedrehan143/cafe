@@ -47,6 +47,8 @@ import {
   MessageSquare,
   Calendar,
   BellRing,
+  ArrowLeft,
+  Home,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
@@ -814,10 +816,21 @@ export default function AdminPortalPage() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#FFF8F0] flex items-center justify-center p-4 relative selection:bg-[#4A2818] selection:text-white overflow-hidden">
+        {/* Top Floating Back to Home Bar */}
+        <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20">
+          <Link
+            href="/"
+            className="px-4 py-2.5 rounded-2xl bg-white/90 hover:bg-white text-[#4A2818] font-mono text-xs font-bold uppercase tracking-wider flex items-center space-x-2 transition-all shadow-warm-md hover:shadow-warm-lg border border-banhmi-gold/40 cursor-pointer active:scale-95 group"
+          >
+            <ArrowLeft className="w-4 h-4 text-banhmi-red group-hover:-translate-x-1 transition-transform" />
+            <span>Back to Home</span>
+          </Link>
+        </div>
+
         <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-amber-200/40 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-rose-200/40 blur-3xl pointer-events-none" />
 
-        <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 border border-banhmi-gold/40 shadow-warm-2xl relative z-10">
+        <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 border border-banhmi-gold/40 shadow-warm-2xl relative z-10 mt-10 sm:mt-0">
           <div className="text-center space-y-2 mb-6">
             <div className="inline-flex p-3 rounded-2xl bg-[#4A2818] text-white shadow-md">
               <ChefHat className="w-7 h-7" />
@@ -915,6 +928,17 @@ export default function AdminPortalPage() {
                 </>
               )}
             </button>
+
+            {/* Direct Home Navigation Link in Form */}
+            <div className="pt-2 text-center border-t border-cream-200">
+              <Link
+                href="/"
+                className="text-xs font-mono text-banhmi-dark/70 hover:text-banhmi-red font-bold inline-flex items-center space-x-1.5 transition-colors group py-1"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                <span>Return to Customer Website</span>
+              </Link>
+            </div>
           </form>
         </div>
       </div>
@@ -957,6 +981,15 @@ export default function AdminPortalPage() {
                 Delivered: <strong className="text-emerald-300">{loggedDeliveryAgent.ordersDeliveredCount}</strong>
               </span>
             </div>
+
+            <Link
+              href="/"
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
+              title="Return to Customer Store"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Store Home</span>
+            </Link>
 
             <button
               onClick={() => fetchRiderOrders()}
@@ -1394,6 +1427,15 @@ export default function AdminPortalPage() {
           >
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
+
+          <Link
+            href="/"
+            className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
+            title="Return to Customer Website"
+          >
+            <Home className="w-3.5 h-3.5 text-amber-300" />
+            <span className="hidden sm:inline">Website</span>
+          </Link>
 
           <button
             onClick={() => setShowChangeKeyModal(true)}
