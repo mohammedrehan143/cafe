@@ -134,8 +134,8 @@ export default function AdminPortalPage() {
   const [riderOtpError, setRiderOtpError] = useState<Record<string, string>>({});
   const [riderOtpSuccess, setRiderOtpSuccess] = useState<Record<string, string>>({});
 
-  // Business Analytics Period State (Monthly Cycle based on days in the current month)
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<'month' | 'all'>('month');
+  // Business Analytics Period State ('today' | 'month' | 'all')
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'today' | 'month' | 'all'>('today');
   const [analyticsSearch, setAnalyticsSearch] = useState('');
   const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState<string>('all');
   const [analyticsRiderFilter, setAnalyticsRiderFilter] = useState<string>('all');
@@ -764,7 +764,7 @@ export default function AdminPortalPage() {
   const riderCompletedDeliveries = riderOrders.filter((o) => o.status === 'completed');
 
   // ---------------------------------------------------------------------------
-  // 2. DYNAMIC MONTHLY CYCLE & TOTAL INCOME CALCULATION (Dynamic days in month)
+  // 2. TODAY'S 24-HOUR INCOME & DYNAMIC MONTHLY CYCLE CALCULATIONS (Resets at 12:00 AM Midnight)
   // ---------------------------------------------------------------------------
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
@@ -772,6 +772,23 @@ export default function AdminPortalPage() {
   const currentMonthName = currentDate.toLocaleString('en-US', { month: 'long' });
   const daysInCurrentMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
 
+  // Start of today: 00:00:00 AM (Midnight)
+  const startOfToday = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 0, 0, 0, 0);
+  const endOfToday = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 23, 59, 59, 999);
+
+  // Orders placed today (from 12:00 AM to 11:59:59 PM)
+  const todaysOrders = orders.filter((o) => {
+    const d = new Date(o.createdAt);
+    return d >= startOfToday && d <= endOfToday;
+  });
+
+  const todaysIncome = todaysOrders.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
+  const todaysOrdersCount = todaysOrders.length;
+  const todaysDeliveredCount = todaysOrders.filter((o) => o.status === 'completed').length;
+  const todaysCookingCount = todaysOrders.filter((o) => o.status === 'new' || o.status === 'preparing' || o.status === 'ready').length;
+  const todaysDeliveringCount = todaysOrders.filter((o) => o.status === 'delivering').length;
+
+  // Monthly orders
   const startOfMonth = new Date(currentYear, currentMonthIndex, 1, 0, 0, 0, 0);
   const endOfMonth = new Date(currentYear, currentMonthIndex + 1, 0, 23, 59, 59, 999);
 
@@ -780,7 +797,12 @@ export default function AdminPortalPage() {
     return d >= startOfMonth && d <= endOfMonth;
   });
 
-  const activePeriodOrders = analyticsPeriod === 'month' ? currentMonthOrders : orders;
+  const activePeriodOrders =
+    analyticsPeriod === 'today'
+      ? todaysOrders
+      : analyticsPeriod === 'month'
+      ? currentMonthOrders
+      : orders;
 
   const periodRevenueSum = activePeriodOrders.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.total : sum), 0);
   const periodOrdersCount = activePeriodOrders.length;
@@ -791,6 +813,16 @@ export default function AdminPortalPage() {
   const avgRatingScore = ratedOrders.length > 0
     ? (ratedOrders.reduce((sum, o) => sum + (o.rating || 0), 0) / ratedOrders.length).toFixed(1)
     : '5.0';
+
+  // Countdown to 12:00 AM Midnight reset
+  const getMidnightResetCountdown = () => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    const diffMs = Math.max(0, nextMidnight.getTime() - now.getTime());
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
 
   const analyticsFilteredOrders = activePeriodOrders.filter((order) => {
     const matchesSearch =
@@ -1426,6 +1458,27 @@ export default function AdminPortalPage() {
 
         {/* Right Header Utilities */}
         <div className="flex items-center space-x-3">
+          {/* Today's Income live badge (00:00 to 23:59 - Resets at 12:00 AM Midnight) */}
+          <button
+            type="button"
+            onClick={() => {
+              setAdminActiveTab('analytics');
+              setAnalyticsPeriod('today');
+            }}
+            className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-white cursor-pointer transition-all shadow-xs"
+            title={`Today's Income (00:00 - 23:59). Resets in ${getMidnightResetCountdown()} at 12:00 AM Midnight. Click to inspect ledger.`}
+          >
+            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+            <div className="text-left">
+              <span className="text-[9px] font-mono text-emerald-300 block uppercase font-bold tracking-wider leading-none">
+                Today&apos;s Income
+              </span>
+              <span className="font-mono text-xs sm:text-sm font-black text-white leading-tight">
+                ₹{todaysIncome.toFixed(0)}
+              </span>
+            </div>
+          </button>
+
           <div className="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 font-mono text-xs font-bold text-white">
             <Clock className="w-3.5 h-3.5 text-amber-300" />
             <span>{currentTime}</span>
@@ -1478,32 +1531,56 @@ export default function AdminPortalPage() {
               <div className="flex items-center space-x-2">
                 <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 font-mono text-xs font-bold uppercase border border-emerald-300 flex items-center space-x-1.5">
                   <Calendar className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>{currentMonthName} {currentYear} • {daysInCurrentMonth}-Day Cycle</span>
+                  <span>
+                    {analyticsPeriod === 'today'
+                      ? `Today (${currentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}) • 24-Hour Cycle`
+                      : analyticsPeriod === 'month'
+                      ? `${currentMonthName} ${currentYear} • ${daysInCurrentMonth}-Day Cycle`
+                      : `All-Time Performance Ledger`}
+                  </span>
                 </span>
-                <span className="text-xs font-mono text-black/50">Auto-refreshes every month</span>
+                <span className="text-xs font-mono text-black/50">
+                  {analyticsPeriod === 'today' ? `Resets at 12:00 AM Midnight (in ${getMidnightResetCountdown()})` : 'Auto-refreshes live'}
+                </span>
               </div>
               <h2 className="font-display text-2xl sm:text-3xl uppercase font-black text-banhmi-dark tracking-tight">
-                {analyticsPeriod === 'month' ? `${currentMonthName} Financial & Performance Ledger` : 'All-Time Financial Ledger'}
+                {analyticsPeriod === 'today'
+                  ? `Today's Kitchen Financial & Orders Ledger`
+                  : analyticsPeriod === 'month'
+                  ? `${currentMonthName} Financial & Performance Ledger`
+                  : 'All-Time Financial Ledger'}
               </h2>
             </div>
 
-            <div className="flex items-center bg-cream-100 p-1 rounded-2xl border border-cream-300 self-start sm:self-auto">
+            <div className="flex flex-wrap items-center bg-cream-100 p-1 rounded-2xl border border-cream-300 self-start sm:self-auto gap-1">
+              <button
+                type="button"
+                onClick={() => setAnalyticsPeriod('today')}
+                className={`px-3.5 py-2 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer ${
+                  analyticsPeriod === 'today'
+                    ? 'bg-[#4A2818] text-white shadow-xs'
+                    : 'text-banhmi-dark/70 hover:text-banhmi-dark'
+                }`}
+              >
+                Today (24h Daily)
+              </button>
+
               <button
                 type="button"
                 onClick={() => setAnalyticsPeriod('month')}
-                className={`px-4 py-2 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer ${
+                className={`px-3.5 py-2 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer ${
                   analyticsPeriod === 'month'
                     ? 'bg-[#4A2818] text-white shadow-xs'
                     : 'text-banhmi-dark/70 hover:text-banhmi-dark'
                 }`}
               >
-                This Month ({daysInCurrentMonth} Days)
+                This Month ({daysInCurrentMonth}d)
               </button>
 
               <button
                 type="button"
                 onClick={() => setAnalyticsPeriod('all')}
-                className={`px-4 py-2 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer ${
+                className={`px-3.5 py-2 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer ${
                   analyticsPeriod === 'all'
                     ? 'bg-[#4A2818] text-white shadow-xs'
                     : 'text-banhmi-dark/70 hover:text-banhmi-dark'
@@ -1517,12 +1594,14 @@ export default function AdminPortalPage() {
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
             <div className="col-span-2 lg:col-span-1 p-5 rounded-3xl bg-[#4A2818] text-white border border-[#2E1509] shadow-warm-md">
               <span className="text-[10px] font-mono uppercase tracking-widest text-white/60 font-bold block">
-                {analyticsPeriod === 'month' ? `${currentMonthName} Income` : 'Total Income'}
+                {analyticsPeriod === 'today' ? "Today's Gross Income" : analyticsPeriod === 'month' ? `${currentMonthName} Income` : 'Total Income'}
               </span>
               <div className="font-display text-3xl uppercase font-black text-emerald-300 mt-1">
                 ₹{periodRevenueSum.toFixed(0)}
               </div>
-              <span className="text-[11px] font-mono text-white/80">{daysInCurrentMonth}-Day Monthly Cycle</span>
+              <span className="text-[11px] font-mono text-white/80">
+                {analyticsPeriod === 'today' ? `Resets at 12:00 AM (${getMidnightResetCountdown()})` : `${daysInCurrentMonth}-Day Monthly Cycle`}
+              </span>
             </div>
 
             <div className="p-5 rounded-3xl bg-white border border-banhmi-gold/40 shadow-warm-md">
@@ -1850,6 +1929,68 @@ export default function AdminPortalPage() {
       {/* --------------------------------------------------------------------- */}
       {adminActiveTab === 'kds' && (
         <main className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-6">
+          {/* Today's 24-Hour Kitchen Income & Daily Operations Widget */}
+          <div className="bg-gradient-to-br from-[#4A2818] via-[#351C10] to-[#1C1917] text-white p-5 sm:p-6 rounded-3xl border border-[#2E1509] shadow-warm-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 left-1/3 w-60 h-60 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold uppercase flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>Today&apos;s Live Kitchen Income</span>
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white/80 text-[11px] font-mono border border-white/10 flex items-center space-x-1">
+                    <Clock className="w-3 h-3 text-amber-300" />
+                    <span>Resets at 12:00 AM Midnight (in {getMidnightResetCountdown()})</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline space-x-3">
+                  <span className="font-display text-4xl sm:text-5xl uppercase font-black text-emerald-300 tracking-tight">
+                    ₹{todaysIncome.toFixed(0)}
+                  </span>
+                  <span className="text-xs font-mono text-white/60">
+                    Gross revenue today ({currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })})
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Operational Metrics */}
+              <div className="grid grid-cols-3 gap-3 self-stretch lg:self-auto sm:min-w-[380px]">
+                <div className="p-3.5 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xs text-center">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/60 font-bold block">
+                    Tickets Today
+                  </span>
+                  <span className="font-display text-2xl font-black text-white mt-0.5 block">
+                    {todaysOrdersCount}
+                  </span>
+                  <span className="text-[9px] font-mono text-white/50">Orders Placed</span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 backdrop-blur-xs text-center">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-300 font-bold block">
+                    Delivered
+                  </span>
+                  <span className="font-display text-2xl font-black text-emerald-300 mt-0.5 block">
+                    {todaysDeliveredCount}
+                  </span>
+                  <span className="text-[9px] font-mono text-emerald-300/80">Completed</span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 backdrop-blur-xs text-center">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 font-bold block">
+                    In Kitchen
+                  </span>
+                  <span className="font-display text-2xl font-black text-amber-300 mt-0.5 block">
+                    {todaysCookingCount}
+                  </span>
+                  <span className="text-[9px] font-mono text-amber-300/80">Active Cooking</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-3xl border border-banhmi-gold/40 shadow-warm-md">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-mono uppercase text-black/50 font-bold mr-1">Status:</span>
