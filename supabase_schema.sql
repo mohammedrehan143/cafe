@@ -98,7 +98,27 @@ CREATE TABLE IF NOT EXISTS public.orders (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. High Performance Lookups & Real-time Tracking Indexes
+-- 5. Create SOS Alerts Table (Rider Emergency & Disaster Broadcast System)
+CREATE TABLE IF NOT EXISTS public.sos_alerts (
+    id TEXT PRIMARY KEY,                          -- e.g. SOS-9421-1718
+    agent_id TEXT REFERENCES public.delivery_agents(id) ON DELETE SET NULL,
+    agent_name TEXT NOT NULL,
+    agent_phone TEXT NOT NULL,
+    order_id TEXT,
+    token_id TEXT,
+    reason TEXT NOT NULL,                         -- Breakdown, accident, flood, traffic, medical, threat, other
+    notes TEXT,
+    lat NUMERIC(10, 6),                           -- Live GPS Latitude
+    lng NUMERIC(10, 6),                           -- Live GPS Longitude
+    location_address TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'resolved')),
+    resolved_at TIMESTAMPTZ,
+    resolved_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 6. High Performance Lookups & Real-time Tracking Indexes
 CREATE INDEX IF NOT EXISTS idx_orders_token_id ON public.orders (token_id);
 CREATE INDEX IF NOT EXISTS idx_orders_tracking_code ON public.orders (tracking_code);
 CREATE INDEX IF NOT EXISTS idx_orders_customer_phone ON public.orders (customer_phone);
@@ -107,11 +127,16 @@ CREATE INDEX IF NOT EXISTS idx_orders_delivery_agent_id ON public.orders (delive
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON public.orders (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders (status);
 
+CREATE INDEX IF NOT EXISTS idx_sos_alerts_status ON public.sos_alerts (status);
+CREATE INDEX IF NOT EXISTS idx_sos_alerts_agent_phone ON public.sos_alerts (agent_phone);
+CREATE INDEX IF NOT EXISTS idx_sos_alerts_created_at ON public.sos_alerts (created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_delivery_agents_phone ON public.delivery_agents (phone);
 CREATE INDEX IF NOT EXISTS idx_delivery_agents_status ON public.delivery_agents (status);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON public.customers (phone);
 CREATE INDEX IF NOT EXISTS idx_menu_items_category ON public.menu_items (category);
 CREATE INDEX IF NOT EXISTS idx_menu_items_available ON public.menu_items (is_available);
+
 
 -- 5. Automated 10-Day Retention Stored Procedure
 CREATE OR REPLACE FUNCTION delete_orders_older_than_10_days()

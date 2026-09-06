@@ -29,7 +29,7 @@ import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
 import { CAFE_INFO } from '@/data/cafeData';
 import { shareLiveLocationOnWhatsApp } from '@/lib/whatsapp';
-import { getCurrentLocationAddress, searchAddressQuery, AddressSuggestion } from '@/lib/location';
+import { getCurrentLocationAddress, searchAddressQuery, AddressSuggestion, formatFullOneLineAddress } from '@/lib/location';
 import Link from 'next/link';
 
 declare global {
@@ -79,6 +79,8 @@ export default function CheckoutModal() {
     unitOrApt: '',
     courierNotes: '',
     chefNotes: '',
+    lat: 0,
+    lng: 0,
   });
 
   // Debounced search for locality / street autocomplete
@@ -112,8 +114,10 @@ export default function CheckoutModal() {
           ...prev,
           address: res.address || prev.address,
           unitOrApt: res.unitOrApt || prev.unitOrApt,
+          lat: res.lat || prev.lat || 0,
+          lng: res.lng || prev.lng || 0,
         }));
-        setLocationSuccess('Current GPS address auto-filled!');
+        setLocationSuccess('Pinpoint GPS address & house details auto-filled!');
         setShowLocationPickerModal(false);
         setTimeout(() => setLocationSuccess(null), 3500);
       } else {
@@ -134,6 +138,8 @@ export default function CheckoutModal() {
       setCustomer((prev) => ({
         ...prev,
         address: item.displayName,
+        lat: item.lat || prev.lat || 0,
+        lng: item.lng || prev.lng || 0,
       }));
     }
     setLocationSuccess('Delivery address selected!');
@@ -180,13 +186,17 @@ export default function CheckoutModal() {
       customer.chefNotes ? `[Chef: ${customer.chefNotes.trim()}]` : '',
     ].filter(Boolean).join(' ');
 
+    const fullOneLineAddress = formatFullOneLineAddress(customer.address, customer.unitOrApt);
+
     return {
       name: customer.name.trim(),
       phone: customer.phone.trim(),
       email: customer.email.trim(),
-      address: customer.address.trim(),
+      address: fullOneLineAddress,
       unitOrApt: customer.unitOrApt.trim(),
       deliveryInstructions: combinedNotes,
+      lat: customer.lat || undefined,
+      lng: customer.lng || undefined,
     };
   };
 
@@ -196,9 +206,11 @@ export default function CheckoutModal() {
       customer.chefNotes ? `[Chef: ${customer.chefNotes.trim()}]` : '',
     ].filter(Boolean).join(' ');
 
+    const fullOneLine = formatFullOneLineAddress(customer.address, customer.unitOrApt);
+
     const result = await shareLiveLocationOnWhatsApp({
       customerName: customer.name || 'Customer',
-      address: customer.address,
+      address: fullOneLine,
       customNote: combinedNotes,
       total: finalTotal,
     });
@@ -206,6 +218,8 @@ export default function CheckoutModal() {
       setCustomer((prev) => ({
         ...prev,
         address: prev.address || 'Live GPS Location Shared via WhatsApp',
+        lat: result.coords?.lat || prev.lat,
+        lng: result.coords?.lng || prev.lng,
       }));
     }
   };
@@ -219,9 +233,12 @@ export default function CheckoutModal() {
       unitOrApt: '',
       courierNotes: '',
       chefNotes: '',
+      lat: 0,
+      lng: 0,
     });
     setIsProcessingPayment(false);
   };
+
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

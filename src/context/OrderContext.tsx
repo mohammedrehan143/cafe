@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { MenuItem, CartItem, Order, OrderStatus, DeliveryMethod, DeliveryAgent } from '@/types/cafe';
+import { MenuItem, CartItem, Order, OrderStatus, DeliveryMethod, DeliveryAgent, SosAlert } from '@/types/cafe';
 import { INITIAL_ORDERS, MENU_ITEMS, CAFE_INFO } from '@/data/cafeData';
 import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
 
@@ -34,6 +34,21 @@ interface OrderContextType {
     agentId?: string,
     agentPhone?: string
   ) => Promise<{ success: boolean; message?: string; error?: string }>;
+  sosAlerts: SosAlert[];
+  refreshSosAlerts: () => Promise<void>;
+  triggerRiderSos: (params: {
+    agentId?: string;
+    agentName: string;
+    agentPhone: string;
+    orderId?: string;
+    tokenId?: string;
+    reason: string;
+    notes?: string;
+    lat?: number;
+    lng?: number;
+    locationAddress?: string;
+  }) => Promise<{ success: boolean; alert?: SosAlert; message?: string; error?: string }>;
+  resolveSosAlert: (alertId: string, resolvedBy?: string, notes?: string) => Promise<boolean>;
   placeOrder: (
     customer: Order['customer'],
     deliveryMethod: DeliveryMethod,
@@ -57,6 +72,7 @@ interface OrderContextType {
   addDemoOrder: () => void;
   clearAllOrders: () => void;
 }
+
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
@@ -612,6 +628,75 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([]);
+
+  // Fetch all SOS alerts from backend
+  const refreshSosAlerts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/delivery/sos', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.alerts)) {
+        setSosAlerts(data.alerts);
+      }
+    } catch {}
+  }, []);
+
+  // Trigger Rider SOS Emergency / Disaster alert
+  const triggerRiderSos = async (params: {
+    agentId?: string;
+    agentName: string;
+    agentPhone: string;
+    orderId?: string;
+    tokenId?: string;
+    reason: string;
+    notes?: string;
+    lat?: number;
+    lng?: number;
+    locationAddress?: string;
+  }): Promise<{ success: boolean; alert?: SosAlert; message?: string; error?: string }> => {
+    try {
+      const res = await fetch('/api/delivery/sos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        refreshSosAlerts();
+        return { success: true, alert: data.alert, message: data.message };
+      }
+      return { success: false, error: data.error || 'Failed to trigger SOS alert.' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'SOS dispatch failed.' };
+    }
+  };
+
+  // Resolve / Dismiss SOS Alert
+  const resolveSosAlert = async (alertId: string, resolvedBy?: string, notes?: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/delivery/sos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alertId, status: 'resolved', resolvedBy, resolutionNotes: notes }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSosAlerts((prev) =>
+          prev.map((a) => (a.id === alertId ? { ...a, status: 'resolved', resolvedAt: new Date().toISOString() } : a))
+        );
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  // Poll SOS alerts every 5 seconds for Kitchen Admin live alerts
+  useEffect(() => {
+    refreshSosAlerts();
+    const interval = setInterval(refreshSosAlerts, 5000);
+    return () => clearInterval(interval);
+  }, [refreshSosAlerts]);
+
   const deleteOrder = async (orderId: string) => {
     try {
       await fetch(`/api/orders?id=${encodeURIComponent(orderId)}`, { method: 'DELETE' });
@@ -701,6 +786,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         refreshDeliveryAgents,
         assignDeliveryAgent,
         verifyDeliveryOtp,
+        sosAlerts,
+        refreshSosAlerts,
+        triggerRiderSos,
+        resolveSosAlert,
         placeOrder,
         updateOrderStatus,
         submitOrderFeedback,
@@ -712,6 +801,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       {children}
     </OrderContext.Provider>
   );
+
 }
 
 export function useOrder() {

@@ -24,17 +24,57 @@ export interface AddressSuggestion {
 }
 
 /**
- * Reverse geocodes coordinates to pinpoint human-readable street address
+ * Formats a clean, single-line address combining line 1 (street/area/city) and line 2 (house/flat/landmark)
  */
-export async function reverseGeocodeCoordinates(lat: number, lng: number): Promise<{ address: string; unitOrApt: string }> {
-  // Provider 1: OpenStreetMap Nominatim with Building-level precision (zoom=18)
+export function formatFullOneLineAddress(address?: string, unitOrApt?: string): string {
+  const cleanLine2 = (unitOrApt || '').trim();
+  const cleanLine1 = (address || '').trim();
+
+  if (cleanLine2 && cleanLine1) {
+    // If line 1 already starts with line 2, avoid duplicating
+    if (cleanLine1.toLowerCase().startsWith(cleanLine2.toLowerCase())) {
+      return cleanLine1;
+    }
+    return `${cleanLine2}, ${cleanLine1}`;
+  }
+
+  return cleanLine2 || cleanLine1 || 'Delivery Address';
+}
+
+/**
+ * Builds an exact 1-click Google Maps Navigation URL using full address and/or GPS coordinates
+ */
+export function buildGoogleMapsUrl(params: {
+  address?: string;
+  unitOrApt?: string;
+  lat?: number;
+  lng?: number;
+}): string {
+  const fullAddress = formatFullOneLineAddress(params.address, params.unitOrApt);
+
+  if (params.lat && params.lng && params.lat !== 0 && params.lng !== 0) {
+    // Exact GPS coordinates query with address label for maximum pinpoint accuracy
+    return `https://www.google.com/maps/search/?api=1&query=${params.lat.toFixed(6)},${params.lng.toFixed(6)}`;
+  }
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
+}
+
+/**
+ * Reverse geocodes coordinates to pinpoint human-readable street address with Building/House name
+ */
+export async function reverseGeocodeCoordinates(
+  lat: number,
+  lng: number
+): Promise<{ address: string; unitOrApt: string }> {
+  // Provider 1: OpenStreetMap Nominatim with Building/House-level precision (zoom=18, namedetails=1)
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&namedetails=1`,
       {
         headers: {
           'Accept-Language': 'en',
-          'User-Agent': 'ZafirooCafeApp/1.0',
+          'User-Agent': 'ZafirooCafeApp/2.0',
         },
       }
     );
@@ -42,39 +82,67 @@ export async function reverseGeocodeCoordinates(lat: number, lng: number): Promi
     if (res.ok) {
       const data = await res.json();
       const addr = data.address || {};
+      const nameDetails = data.namedetails || {};
 
-      const houseNumber = addr.house_number || addr.building || addr.house_name || '';
-      const road = addr.road || addr.street || addr.pedestrian || addr.footway || addr.path || addr.residential || '';
-      const neighbourhood = addr.neighbourhood || addr.suburb || addr.subdistrict || addr.colony || addr.quarter || '';
+      const houseName =
+        addr.house_name ||
+        addr.building ||
+        addr.amenity ||
+        addr.shop ||
+        addr.office ||
+        addr.residential ||
+        addr.apartment ||
+        nameDetails.name ||
+        '';
+
+      const houseNumber = addr.house_number || '';
+      const road =
+        addr.road ||
+        addr.street ||
+        addr.pedestrian ||
+        addr.footway ||
+        addr.path ||
+        addr.suburb ||
+        '';
+
+      const neighbourhood =
+        addr.neighbourhood ||
+        addr.subdistrict ||
+        addr.colony ||
+        addr.quarter ||
+        addr.suburb ||
+        '';
+
       const cityDistrict = addr.city_district || addr.district || '';
-      const city = addr.city || addr.town || addr.municipality || addr.village || addr.county || 'Bengaluru';
+      const city =
+        addr.city ||
+        addr.town ||
+        addr.municipality ||
+        addr.village ||
+        addr.county ||
+        'Bengaluru';
       const postcode = addr.postcode || '';
       const state = addr.state || 'Karnataka';
 
-      const lineParts: string[] = [];
-      if (houseNumber && road) {
-        lineParts.push(`${houseNumber}, ${road}`);
-      } else if (road) {
-        lineParts.push(road);
-      } else if (houseNumber) {
-        lineParts.push(houseNumber);
-      }
+      const unitParts: string[] = [];
+      if (houseNumber) unitParts.push(`No. ${houseNumber}`);
+      if (houseName && !unitParts.includes(houseName)) unitParts.push(houseName);
 
+      const lineParts: string[] = [];
+      if (road) lineParts.push(road);
       if (neighbourhood && !lineParts.includes(neighbourhood)) lineParts.push(neighbourhood);
       if (cityDistrict && !lineParts.includes(cityDistrict) && cityDistrict !== city) lineParts.push(cityDistrict);
       if (city && !lineParts.includes(city)) lineParts.push(city);
       if (state && !lineParts.includes(state)) lineParts.push(state);
       if (postcode) lineParts.push(postcode);
 
-      if (lineParts.length >= 2) {
+      const unitOrApt = unitParts.join(', ');
+      const streetAddress = lineParts.length > 0 ? lineParts.join(', ') : data.display_name || '';
+
+      if (streetAddress) {
         return {
-          address: lineParts.join(', '),
-          unitOrApt: houseNumber ? `No. ${houseNumber}` : '',
-        };
-      } else if (data.display_name) {
-        return {
-          address: data.display_name,
-          unitOrApt: houseNumber ? `No. ${houseNumber}` : '',
+          address: streetAddress,
+          unitOrApt: unitOrApt,
         };
       }
     }
@@ -131,7 +199,7 @@ export async function searchAddressQuery(query: string): Promise<AddressSuggesti
   const suggestions: AddressSuggestion[] = [];
   const seenNames = new Set<string>();
 
-  // 1. Primary Landmark Engine: Photon API by Komoot (indexes all POIs, landmarks, venues, cafes, and roads worldwide)
+  // 1. Primary Landmark Engine: Photon API by Komoot
   try {
     const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(cleanQ)}&limit=8&lat=12.9716&lon=77.5946`;
     const res = await fetch(photonUrl);
@@ -183,7 +251,7 @@ export async function searchAddressQuery(query: string): Promise<AddressSuggesti
       const res = await fetch(nominatimUrl, {
         headers: {
           'Accept-Language': 'en',
-          'User-Agent': 'ZafirooCafeApp/1.0',
+          'User-Agent': 'ZafirooCafeApp/2.0',
         },
       });
 
@@ -228,7 +296,7 @@ export async function searchAddressQuery(query: string): Promise<AddressSuggesti
 }
 
 /**
- * Gets exact device GPS position with High Accuracy enforced
+ * Gets exact device GPS position with High Accuracy & zero cached age enforced
  */
 export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult> {
   if (typeof window === 'undefined' || !navigator.geolocation) {
@@ -259,11 +327,11 @@ export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult
       (error) => {
         let errorMsg = 'Could not access device GPS.';
         if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = 'Location permission was denied by your browser.';
+          errorMsg = 'Location permission was denied. Please allow GPS access or search your address.';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMsg = 'GPS hardware unavailable on this device. Please select or search your area.';
+          errorMsg = 'GPS hardware unavailable on this device. Please search or pick your area.';
         } else if (error.code === error.TIMEOUT) {
-          errorMsg = 'GPS request timed out. Please select or search your area.';
+          errorMsg = 'GPS request timed out. Please search or pick your area.';
         }
 
         resolve({
@@ -273,9 +341,10 @@ export async function getCurrentLocationAddress(): Promise<GeocodedAddressResult
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
+        timeout: 15000,
         maximumAge: 0,
       }
     );
   });
 }
+

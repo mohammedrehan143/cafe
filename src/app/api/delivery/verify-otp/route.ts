@@ -35,17 +35,17 @@ export async function POST(req: NextRequest) {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .or(`id.ilike.%${cleanOrderId}%,tracking_code.ilike.%${cleanOrderId}%,token_id.ilike.%${cleanOrderId}%`)
+        .or(`id.eq.${cleanOrderId},token_id.eq.${cleanOrderId},tracking_code.eq.${cleanOrderId},id.ilike.%${cleanOrderId}%,token_id.ilike.%${cleanOrderId}%,tracking_code.ilike.%${cleanOrderId}%`)
         .limit(1)
         .maybeSingle();
 
       if (!error && data) {
         orderData = data;
-        expectedOtp = data.delivery_otp || null;
+        expectedOtp = (data.delivery_otp || '').toString().trim() || null;
       }
     }
 
-    // Fallback deterministic OTP calculation if not stored in DB
+    // Fallback deterministic OTP calculation if not explicitly stored in DB
     if (!expectedOtp && cleanOrderId) {
       const hashVal = Math.abs(
         cleanOrderId.split('').reduce((a: number, b: string) => (a << 5) - a + b.charCodeAt(0), 0)
@@ -53,16 +53,17 @@ export async function POST(req: NextRequest) {
       expectedOtp = String((hashVal % 9000) + 1000);
     }
 
-    // Compare OTP
-    if (expectedOtp && cleanOtp !== expectedOtp && cleanOtp !== '9999' && cleanOtp !== '1234') {
+    // Strict OTP Comparison: cleanOtp MUST exactly match expectedOtp
+    if (!expectedOtp || cleanOtp !== expectedOtp) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Incorrect Delivery OTP. Please ask the customer for the 4-digit OTP shown on their order tracking screen.',
+          error: '❌ Incorrect Delivery OTP. Handover verification failed. Please ask the customer for their exact 4-digit OTP from their live tracking screen.',
         },
         { status: 400 }
       );
     }
+
 
     const deliveredAtISO = new Date().toISOString();
 

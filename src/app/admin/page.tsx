@@ -49,14 +49,19 @@ import {
   BellRing,
   ArrowLeft,
   Home,
+  AlertTriangle,
+  Siren,
+  ShieldAlert,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useOrder } from '@/context/OrderContext';
-import { Order, OrderStatus, DeliveryMethod, DeliveryAgent } from '@/types/cafe';
+import { Order, OrderStatus, DeliveryMethod, DeliveryAgent, SosAlert } from '@/types/cafe';
 import { CAFE_INFO } from '@/data/cafeData';
 import { supabase, isSupabaseConfigured, formatDbOrderToOrder } from '@/lib/supabase';
+import { formatFullOneLineAddress, buildGoogleMapsUrl, getCurrentLocationAddress } from '@/lib/location';
 import OriginalBillReceipt from '@/components/OriginalBillReceipt';
 import BillModal from '@/components/BillModal';
+
 
 // Isolated, high-performance Live Clock component (does not trigger full KDS re-renders)
 const LiveClock = React.memo(function LiveClock() {
@@ -112,6 +117,10 @@ export default function AdminPortalPage() {
     refreshDeliveryAgents,
     assignDeliveryAgent,
     verifyDeliveryOtp,
+    sosAlerts,
+    refreshSosAlerts,
+    triggerRiderSos,
+    resolveSosAlert,
   } = useOrder();
 
   // Authentication State
@@ -177,15 +186,37 @@ export default function AdminPortalPage() {
   const [riderOtpError, setRiderOtpError] = useState<Record<string, string>>({});
   const [riderOtpSuccess, setRiderOtpSuccess] = useState<Record<string, string>>({});
 
+  // Rider SOS Disaster Alert Modal State
+  const [showRiderSosModal, setShowRiderSosModal] = useState(false);
+  const [sosReason, setSosReason] = useState('Vehicle Breakdown / Accident');
+  const [sosNotes, setSosNotes] = useState('');
+  const [sosOrderId, setSosOrderId] = useState('');
+  const [sosTokenId, setSosTokenId] = useState('');
+  const [isSubmittingSos, setIsSubmittingSos] = useState(false);
+  const [sosSuccessMsg, setSosSuccessMsg] = useState<string | null>(null);
+  const [sosErrorMsg, setSosErrorMsg] = useState<string | null>(null);
+  const [riderGpsCoords, setRiderGpsCoords] = useState<{ lat?: number; lng?: number; address?: string } | null>(null);
+
+  // Admin KDS SOS Modal State
+  const [adminViewSosModal, setAdminViewSosModal] = useState<SosAlert | null>(null);
+  const [isResolvingSos, setIsResolvingSos] = useState(false);
+  const [adminResolutionNotes, setAdminResolutionNotes] = useState('');
+
   // Business Analytics Period State ('today' | 'month' | 'all')
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'today' | 'month' | 'all'>('today');
   const [analyticsSearch, setAnalyticsSearch] = useState('');
   const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState<string>('all');
   const [analyticsRiderFilter, setAnalyticsRiderFilter] = useState<string>('all');
 
+  // Track active SOS alerts
+  const activeSosAlerts = useMemo(() => {
+    return (sosAlerts || []).filter((a) => a.status === 'active');
+  }, [sosAlerts]);
+
   // Track all order IDs that have already been alerted
   const alertedOrderIdsRef = useRef<Set<string>>(new Set());
   const isInitializedRef = useRef<boolean>(false);
+
 
   // Check existing session on mount
   useEffect(() => {
@@ -714,9 +745,78 @@ export default function AdminPortalPage() {
     }
   };
 
+  // Delivery Agent Disaster SOS Submission Handler
+  const handleRiderSubmitSos = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loggedDeliveryAgent) return;
+    setIsSubmittingSos(true);
+    setSosErrorMsg(null);
+    setSosSuccessMsg(null);
+
+    try {
+      let coords = riderGpsCoords;
+      if (!coords) {
+        const gpsRes = await getCurrentLocationAddress();
+        if (gpsRes.success) {
+          coords = {
+            lat: gpsRes.lat,
+            lng: gpsRes.lng,
+            address: gpsRes.address,
+          };
+          setRiderGpsCoords(coords);
+        }
+      }
+
+      const res = await triggerRiderSos({
+        agentId: loggedDeliveryAgent.id,
+        agentName: loggedDeliveryAgent.name,
+        agentPhone: loggedDeliveryAgent.phone,
+        orderId: sosOrderId || undefined,
+        tokenId: sosTokenId || undefined,
+        reason: sosReason,
+        notes: sosNotes,
+        lat: coords?.lat,
+        lng: coords?.lng,
+        locationAddress: coords?.address,
+      });
+
+      if (res.success) {
+        setSosSuccessMsg('🚨 SOS Emergency Broadcasted! Kitchen KDS & Admin Alerted.');
+        setTimeout(() => {
+          setShowRiderSosModal(false);
+          setSosSuccessMsg(null);
+          setSosNotes('');
+          setSosOrderId('');
+          setSosTokenId('');
+        }, 3000);
+      } else {
+        setSosErrorMsg(res.error || 'Failed to dispatch SOS alert.');
+      }
+    } catch (err: any) {
+      setSosErrorMsg(err.message || 'SOS dispatch failed.');
+    } finally {
+      setIsSubmittingSos(false);
+    }
+  };
+
+  // Admin KDS Resolve SOS Alert Handler
+  const handleAdminResolveSos = async (alertId: string) => {
+    setIsResolvingSos(true);
+    try {
+      const ok = await resolveSosAlert(alertId, 'Kitchen Staff Admin', adminResolutionNotes);
+      if (ok) {
+        setAdminViewSosModal(null);
+        setAdminResolutionNotes('');
+      }
+    } finally {
+      setIsResolvingSos(false);
+    }
+  };
+
   // Admin Studio Pickup OTP Verification Handler (In KDS Order Card)
   const handleAdminVerifyPickupOtp = async (orderId: string, expectedOtp?: string) => {
     const enteredOtp = (pickupOtpInputs[orderId] || '').trim();
+
     if (!enteredOtp || enteredOtp.length < 4) {
       setPickupOtpError((prev) => ({ ...prev, [orderId]: 'Enter 4-digit OTP from customer app' }));
       return;
@@ -1081,6 +1181,19 @@ export default function AdminPortalPage() {
               </span>
             </div>
 
+            <button
+              onClick={() => {
+                setSosOrderId('');
+                setSosTokenId('');
+                setShowRiderSosModal(true);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors shadow-sm border border-rose-400/50 cursor-pointer animate-pulse"
+              title="Report Emergency / Disaster Help"
+            >
+              <Siren className="w-3.5 h-3.5" />
+              <span>🚨 SOS Emergency</span>
+            </button>
+
             <Link
               href="/"
               className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
@@ -1147,14 +1260,25 @@ export default function AdminPortalPage() {
 
           {/* Active Assigned Deliveries */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
                 <h2 className="font-display text-2xl uppercase font-black text-banhmi-dark tracking-tight">
                   Active Doorstep Deliveries ({riderActiveDeliveries.length})
                 </h2>
               </div>
-              <span className="text-xs font-mono text-black/50">Auto-refreshing live from DB</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSosOrderId('');
+                  setSosTokenId('');
+                  setShowRiderSosModal(true);
+                }}
+                className="px-3 py-1 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-mono font-bold flex items-center space-x-1.5 hover:bg-rose-100 transition-colors cursor-pointer"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                <span>Need Emergency Help? (SOS)</span>
+              </button>
             </div>
 
             {riderActiveDeliveries.length === 0 ? (
@@ -1174,7 +1298,13 @@ export default function AdminPortalPage() {
                 {riderActiveDeliveries.map((order) => {
                   const itemsCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
                   const isDelivering = order.status === 'delivering';
-                  const isReady = order.status === 'ready';
+                  const fullAddressOneLine = formatFullOneLineAddress(order.customer.address, order.customer.unitOrApt);
+                  const googleMapsNavUrl = buildGoogleMapsUrl({
+                    address: order.customer.address,
+                    unitOrApt: order.customer.unitOrApt,
+                    lat: (order.customer as any).lat,
+                    lng: (order.customer as any).lng,
+                  });
 
                   return (
                     <div
@@ -1227,11 +1357,11 @@ export default function AdminPortalPage() {
                               className="px-3 py-1.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
                             >
                               <Phone className="w-3 h-3" />
-                              <span>Call</span>
+                              <span>Call Customer</span>
                             </a>
                             <a
                               href={`https://wa.me/91${order.customer.phone.replace(/[^0-9]/g, '').slice(-10)}?text=${encodeURIComponent(
-                                `🛵 *Zafiroo Cafe - Order Dispatched!*\n\nHi *${order.customer.name}*,\nYour order *#${order.tokenId || order.id}* is on its way!\n\n🔢 *YOUR DELIVERY OTP:* *${order.deliveryOtp || '1234'}*\n_(Please share this 4-digit code with me upon doorstep arrival to verify delivery)_\n\n🚴 *Rider:* ${loggedDeliveryAgent.name} (+91 ${loggedDeliveryAgent.phone})\n📍 *Live Tracker:* ${typeof window !== 'undefined' ? window.location.origin : 'https://zafiroo.com'}/track?id=${order.tokenId || order.id}`
+                                `🛵 *Zafiroo Cafe - Order Dispatched!*\n\nHi *${order.customer.name}*,\nYour order *#${order.tokenId || order.id}* is on its way!\n\n🔢 *YOUR DELIVERY OTP:* *${order.deliveryOtp || ''}*\n_(Please share this 4-digit code with me upon doorstep arrival to verify delivery)_\n\n🚴 *Rider:* ${loggedDeliveryAgent.name} (+91 ${loggedDeliveryAgent.phone})\n📍 *Live Tracker:* ${typeof window !== 'undefined' ? window.location.origin : 'https://zafiroo.com'}/track?id=${order.tokenId || order.id}`
                               )}`}
                               target="_blank"
                               rel="noreferrer"
@@ -1240,26 +1370,29 @@ export default function AdminPortalPage() {
                             >
                               <span>📲 WhatsApp OTP</span>
                             </a>
-                            <a
-                              href={`sms:+91${order.customer.phone.replace(/[^0-9]/g, '').slice(-10)}?body=${encodeURIComponent(
-                                `Zafiroo Order #${order.tokenId || order.id} is OUT FOR DELIVERY! Your 4-Digit Delivery OTP is: ${order.deliveryOtp || '1234'}. Rider: ${loggedDeliveryAgent.name}`
-                              )}`}
-                              className="px-3 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
-                              title="Send OTP via SMS"
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSosOrderId(order.id);
+                                setSosTokenId(order.tokenId || order.id);
+                                setShowRiderSosModal(true);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs active:scale-95 cursor-pointer"
+                              title="Trigger Emergency SOS for this order"
                             >
-                              <Send className="w-3 h-3" />
-                              <span>SMS OTP</span>
-                            </a>
+                              <AlertTriangle className="w-3 h-3 text-yellow-300" />
+                              <span>SOS Help</span>
+                            </button>
                           </div>
                         </div>
 
                         <div className="space-y-2 bg-[#FFF8F0] p-4 rounded-2xl border border-banhmi-gold/30 flex flex-col justify-between">
                           <div>
                             <span className="text-[10px] font-mono uppercase tracking-wider text-black/50 font-bold block">
-                              Delivery Street Address
+                              Delivery Address (1-Line Exact Location)
                             </span>
                             <p className="text-xs font-sans text-banhmi-dark font-medium mt-0.5 line-clamp-3">
-                              {order.customer.address || 'Address provided at checkout'} {order.customer.unitOrApt ? `(Unit: ${order.customer.unitOrApt})` : ''}
+                              {fullAddressOneLine}
                             </p>
                             {order.customer.deliveryInstructions && (
                               <p className="text-[11px] font-mono text-amber-900 bg-amber-100/60 p-1.5 rounded-lg mt-1.5 border border-amber-200">
@@ -1270,7 +1403,7 @@ export default function AdminPortalPage() {
 
                           {order.customer.address && (
                             <a
-                              href={`https://maps.google.com/?q=${encodeURIComponent(order.customer.address)}`}
+                              href={googleMapsNavUrl}
                               target="_blank"
                               rel="noreferrer"
                               className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-colors shadow-xs mt-2"
@@ -1281,6 +1414,7 @@ export default function AdminPortalPage() {
                           )}
                         </div>
                       </div>
+
 
                       <div className="p-3.5 rounded-2xl bg-cream-100/70 border border-cream-300">
                         <span className="text-[10px] font-mono uppercase tracking-wider text-black/50 font-bold block mb-1">
@@ -1588,11 +1722,56 @@ export default function AdminPortalPage() {
         </div>
       </header>
 
+      {/* ACTIVE SOS DISASTER ALERT BANNER (Kitchen Admin Immediate Notice) */}
+      {activeSosAlerts.length > 0 && (
+        <div className="bg-gradient-to-r from-rose-700 via-red-600 to-amber-700 text-white px-4 sm:px-8 py-3.5 shadow-warm-xl border-b-2 border-yellow-300 animate-pulse sticky top-[60px] z-20">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-2xl bg-white text-rose-700 ring-4 ring-rose-300/40 shadow-sm flex-shrink-0">
+                <Siren className="w-5 h-5 animate-bounce" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-display text-base sm:text-lg uppercase font-black tracking-wide text-white">
+                    🚨 ACTIVE DISASTER SOS ALERT ({activeSosAlerts.length})
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-black/40 text-yellow-300 font-mono text-[10px] font-black uppercase tracking-wider border border-yellow-300/40">
+                    Rider in Distress
+                  </span>
+                </div>
+                <p className="text-xs text-white/95 font-mono mt-0.5">
+                  Rider: <strong className="text-yellow-200">{activeSosAlerts[0].agentName}</strong> ({activeSosAlerts[0].agentPhone}) • Problem: <strong className="text-white bg-black/20 px-1.5 py-0.2 rounded">{activeSosAlerts[0].reason}</strong> {activeSosAlerts[0].tokenId ? `• Order #${activeSosAlerts[0].tokenId}` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <a
+                href={`tel:${activeSosAlerts[0].agentPhone.replace(/[^0-9+]/g, '')}`}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-yellow-100 text-rose-700 font-mono text-xs font-bold uppercase shadow-sm flex items-center space-x-1.5 transition-all active:scale-95"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Call Rider</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setAdminViewSosModal(activeSosAlerts[0])}
+                className="px-4 py-2 rounded-xl bg-black/40 hover:bg-black/60 text-white font-mono text-xs font-bold uppercase border border-white/40 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center space-x-1"
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-yellow-300" />
+                <span>Action Center →</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --------------------------------------------------------------------- */}
       {/* TAB A: EXECUTIVE BUSINESS TRACKING & MONTHLY TOTAL INCOME VIEW */}
       {/* --------------------------------------------------------------------- */}
       {adminActiveTab === 'analytics' && (
         <main className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-8">
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-3xl border border-banhmi-gold/40 shadow-warm-md">
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
@@ -2831,6 +3010,279 @@ export default function AdminPortalPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* MODAL 6: RIDER SOS DISASTER & EMERGENCY ASSISTANCE MODAL */}
+      {/* --------------------------------------------------------------------- */}
+      <AnimatePresence>
+        {showRiderSosModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              className="w-full max-w-lg bg-white rounded-3xl p-6 sm:p-7 border-2 border-rose-600 shadow-warm-2xl space-y-5 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between border-b border-rose-200 pb-3">
+                <div className="flex items-center space-x-2.5">
+                  <div className="p-2 rounded-xl bg-rose-100 text-rose-700">
+                    <Siren className="w-6 h-6 animate-pulse text-rose-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-xl uppercase font-black text-rose-700 leading-tight">
+                      🚨 Rider Emergency SOS Assistance
+                    </h3>
+                    <span className="text-[10px] font-mono text-black/60 uppercase tracking-wider">
+                      Broadcasts disaster alert with live GPS pin to Kitchen &amp; Admin
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRiderSosModal(false)}
+                  className="p-1 text-black/40 hover:text-black cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleRiderSubmitSos} className="space-y-4">
+                {sosTokenId && (
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-xs font-mono font-bold text-amber-900 flex items-center justify-between">
+                    <span>Order In Trouble: #{sosTokenId}</span>
+                    <span className="text-[10px] uppercase bg-amber-200 px-2 py-0.5 rounded-md">Assigned Delivery</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-mono uppercase text-black/70 font-bold block mb-1.5">
+                    Select Emergency Issue Type *:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'Vehicle Breakdown / Accident', icon: '💥' },
+                      { id: 'Heavy Rain / Flood / Waterlogging', icon: '🌧️' },
+                      { id: 'Road Blocked / Traffic Gridlock', icon: '🛑' },
+                      { id: 'Medical Emergency', icon: '🏥' },
+                      { id: 'Threat / Safety / Dispute', icon: '⚠️' },
+                      { id: 'Other Urgent Trouble', icon: '❓' },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSosReason(item.id)}
+                        className={`p-2.5 rounded-xl text-xs font-mono font-bold text-left transition-all border flex items-center space-x-1.5 cursor-pointer ${
+                          sosReason === item.id
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                            : 'bg-[#FFF8F0] text-black/80 border-banhmi-gold/40 hover:bg-rose-50'
+                        }`}
+                      >
+                        <span>{item.icon}</span>
+                        <span className="truncate">{item.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-mono uppercase text-black/70 font-bold block mb-1">
+                    Describe What Happened / Need Support (Optional):
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={sosNotes}
+                    onChange={(e) => setSosNotes(e.target.value)}
+                    placeholder="e.g. Puncture near signal, tire flat, stuck in knee-deep water, need another rider..."
+                    className="w-full px-3.5 py-2 rounded-xl bg-[#FFF8F0] border border-banhmi-gold/40 text-xs font-mono text-banhmi-dark focus:outline-none focus:ring-2 focus:ring-rose-600 resize-none"
+                  />
+                </div>
+
+                {/* Auto-detected GPS Coordinates indicator */}
+                <div className="p-2.5 rounded-xl bg-cream-100 border border-cream-300 text-xs font-mono text-black/70 flex items-center justify-between">
+                  <span className="flex items-center space-x-1">
+                    <MapPin className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Live GPS Location will be attached</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                    High Accuracy
+                  </span>
+                </div>
+
+                {sosErrorMsg && (
+                  <div className="p-2.5 rounded-xl bg-rose-100 border border-rose-300 text-rose-900 text-xs font-mono">
+                    {sosErrorMsg}
+                  </div>
+                )}
+
+                {sosSuccessMsg && (
+                  <div className="p-3 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-mono font-bold flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>{sosSuccessMsg}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                  <a
+                    href="tel:112"
+                    className="py-3 px-4 rounded-xl bg-stone-900 hover:bg-black text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-1.5 shadow-sm transition-all"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Call Police / 112</span>
+                  </a>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingSos}
+                    className="flex-1 py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmittingSos ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Broadcasting SOS...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Siren className="w-4 h-4 text-yellow-300" />
+                        <span>Send Emergency SOS Alert</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* MODAL 7: ADMIN KDS SOS ACTION CENTER MODAL */}
+      {/* --------------------------------------------------------------------- */}
+      <AnimatePresence>
+        {adminViewSosModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              className="w-full max-w-lg bg-white rounded-3xl p-6 sm:p-7 border-2 border-rose-600 shadow-warm-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-rose-200 pb-3">
+                <div className="flex items-center space-x-2.5">
+                  <div className="p-2 rounded-xl bg-rose-100 text-rose-700 ring-2 ring-rose-300">
+                    <ShieldAlert className="w-6 h-6 text-rose-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-xl uppercase font-black text-rose-700 leading-tight">
+                      🚨 Rider Disaster SOS Action Center
+                    </h3>
+                    <span className="text-[10px] font-mono text-black/60">
+                      Alert #{adminViewSosModal.id} • Triggered: {new Date(adminViewSosModal.createdAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdminViewSosModal(null)}
+                  className="p-1 text-black/40 hover:text-black cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3 bg-rose-50 p-4 rounded-2xl border border-rose-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono uppercase font-bold text-rose-900">
+                    Rider in Distress:
+                  </span>
+                  <span className="font-mono text-xs font-black text-white bg-rose-700 px-2.5 py-0.5 rounded-full">
+                    Active Crisis
+                  </span>
+                </div>
+
+                <div className="font-display text-xl uppercase font-black text-black">
+                  {adminViewSosModal.agentName}
+                </div>
+                <div className="text-sm font-mono text-rose-800 font-bold flex items-center space-x-1.5">
+                  <Phone className="w-4 h-4 text-emerald-600" />
+                  <span>+91 {adminViewSosModal.agentPhone}</span>
+                </div>
+
+                <div className="pt-2 border-t border-rose-200 text-xs font-mono space-y-1">
+                  <div>
+                    <span className="text-black/60 uppercase font-bold">Reported Problem: </span>
+                    <strong className="text-rose-950 font-bold">{adminViewSosModal.reason}</strong>
+                  </div>
+                  {adminViewSosModal.notes && (
+                    <div>
+                      <span className="text-black/60 uppercase font-bold">Rider Notes: </span>
+                      <em className="text-rose-900">&ldquo;{adminViewSosModal.notes}&rdquo;</em>
+                    </div>
+                  )}
+                  {adminViewSosModal.tokenId && (
+                    <div>
+                      <span className="text-black/60 uppercase font-bold">Associated Order: </span>
+                      <strong className="text-banhmi-red">#{adminViewSosModal.tokenId}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <a
+                    href={`tel:${adminViewSosModal.agentPhone.replace(/[^0-9+]/g, '')}`}
+                    className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 shadow-sm transition-all"
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>Call Rider Now</span>
+                  </a>
+
+                  {adminViewSosModal.lat && adminViewSosModal.lng ? (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${adminViewSosModal.lat.toFixed(6)},${adminViewSosModal.lng.toFixed(6)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 shadow-sm transition-all"
+                    >
+                      <Navigation className="w-4 h-4" />
+                      <span>Rider Live GPS</span>
+                    </a>
+                  ) : (
+                    <a
+                      href={`https://wa.me/91${adminViewSosModal.agentPhone.replace(/[^0-9]/g, '').slice(-10)}?text=${encodeURIComponent('Hi, received your SOS disaster alert. How can we assist you immediately?')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 shadow-sm transition-all"
+                    >
+                      <span>WhatsApp Rider</span>
+                    </a>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-cream-300">
+                  <button
+                    type="button"
+                    disabled={isResolvingSos}
+                    onClick={() => handleAdminResolveSos(adminViewSosModal.id)}
+                    className="w-full py-3 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {isResolvingSos ? (
+                      <span>Resolving Alert...</span>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>Mark SOS Resolved &amp; Clear Alert</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+

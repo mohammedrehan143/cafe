@@ -86,6 +86,8 @@ export interface Order {
     address?: string;
     unitOrApt?: string;
     deliveryInstructions?: string;
+    lat?: number;
+    lng?: number;
   };
   items: CartItem[];
   subtotal: number;
@@ -105,6 +107,24 @@ export interface Order {
   rating?: number;
   feedbackTags?: string[];
   feedbackNote?: string;
+}
+
+export interface SosAlert {
+  id: string; // e.g. SOS-9421-171800
+  agentId?: string;
+  agentName: string;
+  agentPhone: string;
+  orderId?: string;
+  tokenId?: string;
+  reason: 'accident' | 'breakdown' | 'weather' | 'traffic' | 'medical' | 'threat' | 'other' | string;
+  notes?: string;
+  lat?: number;
+  lng?: number;
+  locationAddress?: string;
+  status: 'active' | 'resolved';
+  resolvedAt?: string;
+  resolvedBy?: string;
+  createdAt: string;
 }
 
 export interface SignatureDish {
@@ -145,3 +165,4 @@ export interface GalleryItem {
   aspect: 'square' | 'tall' | 'wide';
   caption: string;
 }
+
