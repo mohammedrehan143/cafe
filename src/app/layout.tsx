@@ -1,8 +1,17 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Asap_Condensed, Poppins, Space_Mono, Dancing_Script, Playfair_Display } from "next/font/google";
 import { OrderProvider } from "@/context/OrderContext";
 import ScrollProgressBar from "@/components/ScrollProgressBar";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#4A2818",
+};
 
 const asapCondensed = Asap_Condensed({
   subsets: ["latin"],

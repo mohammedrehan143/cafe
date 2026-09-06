@@ -821,25 +821,33 @@ export default function AdminPortalPage() {
   };
 
   // Delivery Agent Disaster SOS Submission Handler
-  const handleRiderSubmitSos = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRiderSubmitSos = async (e?: React.FormEvent, directReason?: string) => {
+    if (e) e.preventDefault();
     if (!loggedDeliveryAgent) return;
     setIsSubmittingSos(true);
     setSosErrorMsg(null);
     setSosSuccessMsg(null);
 
+    const chosenReason = directReason || sosReason || 'Vehicle Breakdown / Accident';
+
     try {
       let coords = riderGpsCoords;
       if (!coords) {
-        const gpsRes = await getCurrentLocationAddress();
-        if (gpsRes.success) {
-          coords = {
-            lat: gpsRes.lat,
-            lng: gpsRes.lng,
-            address: gpsRes.address,
-          };
-          setRiderGpsCoords(coords);
-        }
+        try {
+          const gpsPromise = getCurrentLocationAddress();
+          const timeoutPromise = new Promise<{ success: false }>((resolve) =>
+            setTimeout(() => resolve({ success: false }), 2000)
+          );
+          const gpsRes = await Promise.race([gpsPromise, timeoutPromise]);
+          if (gpsRes && (gpsRes as any).success) {
+            coords = {
+              lat: (gpsRes as any).lat,
+              lng: (gpsRes as any).lng,
+              address: (gpsRes as any).address,
+            };
+            setRiderGpsCoords(coords);
+          }
+        } catch {}
       }
 
       const res = await triggerRiderSos({
@@ -848,7 +856,7 @@ export default function AdminPortalPage() {
         agentPhone: loggedDeliveryAgent.phone,
         orderId: sosOrderId || undefined,
         tokenId: sosTokenId || undefined,
-        reason: sosReason,
+        reason: chosenReason,
         notes: sosNotes,
         lat: coords?.lat,
         lng: coords?.lng,
@@ -856,14 +864,14 @@ export default function AdminPortalPage() {
       });
 
       if (res.success) {
-        setSosSuccessMsg('🚨 SOS Emergency Broadcasted! Kitchen KDS & Admin Alerted.');
+        setSosSuccessMsg('🚨 SOS Emergency Broadcasted! Kitchen KDS & Admin Alerted with Red Alert.');
         setTimeout(() => {
           setShowRiderSosModal(false);
           setSosSuccessMsg(null);
           setSosNotes('');
           setSosOrderId('');
           setSosTokenId('');
-        }, 3000);
+        }, 2200);
       } else {
         setSosErrorMsg(res.error || 'Failed to dispatch SOS alert.');
       }
@@ -1220,105 +1228,113 @@ export default function AdminPortalPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // RENDER 2: DELIVERY AGENT DEDICATED PORTAL (Rider App View)
+  // RENDER 2: DELIVERY AGENT DEDICATED PORTAL (Rider Mobile App View)
   // ---------------------------------------------------------------------------
   if (authRole === 'delivery_agent' && loggedDeliveryAgent) {
     return (
-      <div className="min-h-screen bg-[#FFF8F0] text-[#1C1917] selection:bg-[#4A2818] selection:text-white pb-20">
-        {/* Rider Top Navigation Bar */}
-        <header className="sticky top-0 z-30 bg-[#4A2818] text-white px-4 sm:px-6 py-4 shadow-warm-lg flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-2xl bg-white/10 text-emerald-400 border border-white/10">
-              <Bike className="w-6 h-6" />
+      <div className="min-h-screen bg-[#FFF8F0] text-[#1C1917] selection:bg-[#4A2818] selection:text-white pb-24 w-full overflow-x-hidden">
+        {/* Rider Top Mobile-Optimized Navigation Bar */}
+        <header className="sticky top-0 z-30 bg-[#4A2818] text-white px-3 sm:px-6 py-3 shadow-warm-md w-full">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
+            {/* Rider Identity */}
+            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+              <div className="p-2 rounded-xl bg-white/10 text-emerald-400 border border-white/10 flex-shrink-0">
+                <Bike className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center space-x-1.5 flex-wrap">
+                  <span className="font-display text-base sm:text-xl uppercase font-black tracking-tight text-white truncate max-w-[140px] sm:max-w-none">
+                    {loggedDeliveryAgent.name}
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-mono font-bold uppercase flex-shrink-0">
+                    On-Duty
+                  </span>
+                </div>
+                <div className="text-[10px] sm:text-xs font-mono text-white/70 flex items-center space-x-1.5 truncate">
+                  <span>+91 {loggedDeliveryAgent.phone}</span>
+                  <span>•</span>
+                  <span className="truncate">{loggedDeliveryAgent.vehicleType || 'Electric Bike'}</span>
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-display text-xl sm:text-2xl uppercase font-black tracking-tight text-white">
-                  {loggedDeliveryAgent.name}
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold uppercase">
-                  Active On-Duty
-                </span>
-              </div>
-              <div className="text-xs font-mono text-white/70 flex items-center space-x-2">
-                <span>+91 {loggedDeliveryAgent.phone}</span>
-                <span>•</span>
-                <span>{loggedDeliveryAgent.vehicleType || 'Electric Bike'}</span>
-              </div>
+
+            {/* Quick Utility Actions */}
+            <div className="flex items-center space-x-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => fetchRiderOrders()}
+                disabled={loadingRiderOrders}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/10 cursor-pointer disabled:opacity-50"
+                title="Refresh Assigned Orders"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingRiderOrders ? 'animate-spin' : ''}`} />
+              </button>
+
+              <Link
+                href="/"
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/10 cursor-pointer"
+                title="Return to Customer Store"
+              >
+                <Home className="w-4 h-4 text-amber-300" />
+              </Link>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="p-2 rounded-xl bg-white/10 hover:bg-rose-600/80 text-white transition-colors border border-white/10 cursor-pointer"
+                title="Logout from Terminal"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
-            <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10">
-              <PackageCheck className="w-4 h-4 text-emerald-400" />
-              <span className="font-mono text-xs font-bold text-white">
-                Delivered: <strong className="text-emerald-300">{loggedDeliveryAgent.ordersDeliveredCount}</strong>
-              </span>
-            </div>
-
+          {/* Prominent SOS Disaster Emergency Broadcast Bar */}
+          <div className="max-w-4xl mx-auto mt-2.5 pt-2 border-t border-white/10 flex items-center gap-2">
             <button
+              type="button"
               onClick={() => {
                 setSosOrderId('');
                 setSosTokenId('');
                 setShowRiderSosModal(true);
               }}
-              className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors shadow-sm border border-rose-400/50 cursor-pointer animate-pulse"
-              title="Report Emergency / Disaster Help"
+              className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-700 hover:to-rose-700 text-white font-display text-xs sm:text-sm uppercase tracking-wider font-black flex items-center justify-center space-x-2 shadow-md border-2 border-yellow-300 animate-pulse active:scale-95 cursor-pointer"
             >
-              <Siren className="w-3.5 h-3.5" />
-              <span>🚨 SOS Emergency</span>
+              <Siren className="w-4 h-4 text-yellow-300 animate-bounce flex-shrink-0" />
+              <span>🚨 EMERGENCY SOS DISASTER HELP</span>
             </button>
 
-            <Link
-              href="/"
-              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
-              title="Return to Customer Store"
-            >
-              <Home className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Store Home</span>
-            </Link>
-
-            <button
-              onClick={() => fetchRiderOrders()}
-              disabled={loadingRiderOrders}
-              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer disabled:opacity-50"
-              title="Refresh Assigned Orders"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingRiderOrders ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-rose-600/80 text-white font-mono text-xs font-bold flex items-center space-x-1.5 transition-colors border border-white/10 cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Logout</span>
-            </button>
+            <div className="px-2.5 py-2 rounded-xl bg-white/10 border border-white/10 text-white text-[10px] sm:text-xs font-mono font-bold flex items-center space-x-1 flex-shrink-0">
+              <PackageCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>
+                Delivered: <strong className="text-emerald-300">{loggedDeliveryAgent.ordersDeliveredCount}</strong>
+              </span>
+            </div>
           </div>
         </header>
 
         {/* Rider Portal Main Container */}
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 space-y-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-2xl bg-white border border-amber-300/80 shadow-xs">
+        <main className="w-full max-w-lg sm:max-w-4xl mx-auto px-3 sm:px-6 pt-4 sm:pt-6 space-y-4">
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-amber-300/80 shadow-xs">
               <span className="text-[10px] font-mono uppercase text-black/50 font-bold block">Assigned Active</span>
-              <div className="font-display text-2xl uppercase font-black text-amber-900 mt-0.5">
+              <div className="font-display text-xl sm:text-2xl uppercase font-black text-amber-900 mt-0.5">
                 {riderActiveDeliveries.length} Deliveries
               </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-white border border-emerald-300/80 shadow-xs">
-              <span className="text-[10px] font-mono uppercase text-black/50 font-bold block">Total Completed</span>
-              <div className="font-display text-2xl uppercase font-black text-emerald-900 mt-0.5 flex items-center space-x-1">
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-emerald-300/80 shadow-xs">
+              <span className="text-[10px] font-mono uppercase text-black/50 font-bold block">Completed Today</span>
+              <div className="font-display text-xl sm:text-2xl uppercase font-black text-emerald-900 mt-0.5 flex items-center space-x-1">
                 <span>{loggedDeliveryAgent.ordersDeliveredCount} Orders</span>
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 inline" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 inline" />
               </div>
             </div>
 
-            <div className="col-span-2 sm:col-span-1 p-4 rounded-2xl bg-white border border-stone-300/80 shadow-xs flex items-center justify-between">
+            <div className="col-span-2 sm:col-span-1 p-3.5 sm:p-4 rounded-2xl bg-white border border-stone-300/80 shadow-xs flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-mono uppercase text-black/50 font-bold block">Studio Kitchen</span>
+                <span className="text-[10px] font-mono uppercase text-black/50 font-bold block">Kitchen Hub</span>
                 <div className="font-mono text-xs font-bold text-banhmi-dark mt-0.5">100 Ft Rd Indiranagar</div>
               </div>
               <a
@@ -1334,11 +1350,11 @@ export default function AdminPortalPage() {
           </div>
 
           {/* Active Assigned Deliveries */}
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
-                <h2 className="font-display text-2xl uppercase font-black text-banhmi-dark tracking-tight">
+                <h2 className="font-display text-xl sm:text-2xl uppercase font-black text-banhmi-dark tracking-tight">
                   Active Doorstep Deliveries ({riderActiveDeliveries.length})
                 </h2>
               </div>
@@ -1349,27 +1365,27 @@ export default function AdminPortalPage() {
                   setSosTokenId('');
                   setShowRiderSosModal(true);
                 }}
-                className="px-3 py-1 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-mono font-bold flex items-center space-x-1.5 hover:bg-rose-100 transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-mono font-bold flex items-center space-x-1.5 hover:bg-rose-100 transition-colors cursor-pointer active:scale-95"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                <span>Need Emergency Help? (SOS)</span>
+                <span>Need SOS Help?</span>
               </button>
             </div>
 
             {riderActiveDeliveries.length === 0 ? (
-              <div className="bg-white rounded-3xl p-8 border border-banhmi-gold/30 text-center space-y-3">
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-banhmi-gold/30 text-center space-y-2.5">
                 <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-600 inline-block">
-                  <CheckCircle2 className="w-8 h-8" />
+                  <CheckCircle2 className="w-7 h-7" />
                 </div>
-                <h3 className="font-display text-xl uppercase font-black text-banhmi-dark">
+                <h3 className="font-display text-lg sm:text-xl uppercase font-black text-banhmi-dark">
                   No Active Deliveries Assigned Right Now
                 </h3>
                 <p className="text-xs text-banhmi-dark/70 font-sans max-w-sm mx-auto">
-                  You are all caught up! New orders dispatched from the kitchen will trigger an alert here in real-time.
+                  You are all caught up! When kitchen staff dispatches a new order to you, it will appear here in real-time.
                 </p>
               </div>
             ) : (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 {riderActiveDeliveries.map((order) => {
                   const itemsCount = order.items.reduce((sum, i) => sum + i.quantity, 0);
                   const isDelivering = order.status === 'delivering';
@@ -1384,54 +1400,66 @@ export default function AdminPortalPage() {
                   return (
                     <div
                       key={order.id}
-                      className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-amber-300/80 shadow-warm-lg space-y-5 relative overflow-hidden"
+                      className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 border-2 border-amber-300/80 shadow-warm-md space-y-4 relative overflow-hidden"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-cream-200 pb-4">
+                      {/* Order Header */}
+                      <div className="flex items-center justify-between gap-2 border-b border-cream-200 pb-3">
                         <div>
-                          <div className="flex items-center space-x-2">
-                            <span className="font-mono font-black text-banhmi-red text-xl">
+                          <div className="flex items-center space-x-2 flex-wrap">
+                            <span className="font-mono font-black text-banhmi-red text-lg sm:text-xl">
                               #{order.tokenId || order.id}
                             </span>
                             <span
-                              className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold uppercase ${
-                                isDelivering ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                              className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-mono font-bold uppercase ${
+                                isDelivering
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                               }`}
                             >
-                              {isDelivering ? 'Out for Delivery' : 'Packed & Ready at Counter'}
+                              {isDelivering ? 'Out for Delivery' : 'Packed & Ready at Hub'}
                             </span>
                           </div>
-                          <span className="text-xs font-mono text-black/50">
+                          <span className="text-[11px] font-mono text-black/50 block mt-0.5">
                             Placed: {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ETA: {order.estimatedTime}
                           </span>
                         </div>
 
-                        <div className="text-right">
-                          <span className="text-[10px] font-mono uppercase text-black/50 block">Payment</span>
-                          <span className="font-mono text-sm font-bold text-banhmi-dark">
-                            ₹{order.total.toFixed(0)} • {order.paymentMethod}
+                        <div className="text-right flex-shrink-0">
+                          <span className="text-[9px] font-mono uppercase text-black/50 block">Collect Amount</span>
+                          <span className="font-mono text-sm sm:text-base font-black text-banhmi-dark">
+                            ₹{order.total.toFixed(0)}
+                          </span>
+                          <span className="text-[10px] font-mono text-emerald-700 block font-bold">
+                            {order.paymentMethod}
                           </span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2 bg-[#FFF8F0] p-4 rounded-2xl border border-banhmi-gold/30">
-                          <span className="text-[10px] font-mono uppercase tracking-wider text-black/50 font-bold block">
-                            Customer Details
-                          </span>
-                          <div className="font-display text-lg uppercase font-bold text-banhmi-dark">
-                            {order.customer.name}
-                          </div>
-                          <div className="text-xs font-mono text-banhmi-dark/80 flex items-center space-x-1.5">
-                            <Phone className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                            <span>{order.customer.phone}</span>
+                      {/* Customer & Address Details */}
+                      <div className="space-y-3">
+                        {/* Customer Info Card */}
+                        <div className="bg-[#FFF8F0] p-3.5 rounded-2xl border border-banhmi-gold/30 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[9px] font-mono uppercase tracking-wider text-black/50 font-bold block">
+                                Customer
+                              </span>
+                              <div className="font-display text-base sm:text-lg uppercase font-bold text-banhmi-dark">
+                                {order.customer.name}
+                              </div>
+                            </div>
+                            <span className="text-xs font-mono text-banhmi-dark font-bold bg-white px-2.5 py-1 rounded-lg border border-banhmi-gold/30">
+                              +91 {order.customer.phone}
+                            </span>
                           </div>
 
-                          <div className="pt-2 flex flex-wrap items-center gap-2">
+                          {/* Quick Actions: Call & WhatsApp */}
+                          <div className="grid grid-cols-2 gap-2 pt-1">
                             <a
                               href={`tel:${order.customer.phone.replace(/[^0-9+]/g, '')}`}
-                              className="px-3 py-1.5 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
+                              className="py-2.5 px-3 rounded-xl bg-[#4A2818] hover:bg-[#2E1509] text-white text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-colors shadow-xs active:scale-95"
                             >
-                              <Phone className="w-3 h-3" />
+                              <Phone className="w-3.5 h-3.5 text-emerald-400" />
                               <span>Call Customer</span>
                             </a>
                             <a
@@ -1440,66 +1468,51 @@ export default function AdminPortalPage() {
                               )}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs"
+                              className="py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-colors shadow-xs active:scale-95"
                               title="Send Order & OTP via WhatsApp"
                             >
                               <span>📲 WhatsApp OTP</span>
                             </a>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSosOrderId(order.id);
-                                setSosTokenId(order.tokenId || order.id);
-                                setShowRiderSosModal(true);
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-mono font-bold flex items-center space-x-1.5 transition-colors shadow-xs active:scale-95 cursor-pointer"
-                              title="Trigger Emergency SOS for this order"
-                            >
-                              <AlertTriangle className="w-3 h-3 text-yellow-300" />
-                              <span>SOS Help</span>
-                            </button>
                           </div>
                         </div>
 
-                        <div className="space-y-2 bg-[#FFF8F0] p-4 rounded-2xl border border-banhmi-gold/30 flex flex-col justify-between">
-                          <div>
-                            <span className="text-[10px] font-mono uppercase tracking-wider text-black/50 font-bold block">
-                              Delivery Address (1-Line Exact Location)
-                            </span>
-                            <p className="text-xs font-sans text-banhmi-dark font-medium mt-0.5 line-clamp-3">
-                              {fullAddressOneLine}
-                            </p>
-                            {order.customer.deliveryInstructions && (
-                              <p className="text-[11px] font-mono text-amber-900 bg-amber-100/60 p-1.5 rounded-lg mt-1.5 border border-amber-200">
-                                <em>{order.customer.deliveryInstructions}</em>
-                              </p>
-                            )}
-                          </div>
+                        {/* Delivery Address & 1-Click Navigation */}
+                        <div className="bg-[#FFF8F0] p-3.5 rounded-2xl border border-banhmi-gold/30 space-y-2">
+                          <span className="text-[9px] font-mono uppercase tracking-wider text-black/50 font-bold block">
+                            Exact Delivery Location (1-Line)
+                          </span>
+                          <p className="text-xs font-sans text-banhmi-dark font-medium leading-relaxed">
+                            📍 {fullAddressOneLine}
+                          </p>
 
-                          {order.customer.address && (
-                            <a
-                              href={googleMapsNavUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-colors shadow-xs mt-2"
-                            >
-                              <Navigation className="w-3.5 h-3.5" />
-                              <span>Open Google Maps Navigation</span>
-                            </a>
+                          {order.customer.deliveryInstructions && (
+                            <p className="text-[11px] font-mono text-amber-900 bg-amber-100/60 p-2 rounded-lg border border-amber-200">
+                              <em>Courier Note: {order.customer.deliveryInstructions}</em>
+                            </p>
                           )}
+
+                          <a
+                            href={googleMapsNavUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-mono font-bold flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-95 cursor-pointer"
+                          >
+                            <Navigation className="w-4 h-4" />
+                            <span>Open Google Maps Navigation</span>
+                          </a>
                         </div>
                       </div>
 
-
-                      <div className="p-3.5 rounded-2xl bg-cream-100/70 border border-cream-300">
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-black/50 font-bold block mb-1">
-                          Package Items ({itemsCount})
+                      {/* Package Items */}
+                      <div className="p-3 rounded-xl bg-cream-100/70 border border-cream-300">
+                        <span className="text-[9px] font-mono uppercase tracking-wider text-black/50 font-bold block mb-1">
+                          Package Contents ({itemsCount} items)
                         </span>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-1.5">
                           {order.items.map((it, idx) => (
                             <span
                               key={idx}
-                              className="px-2.5 py-1 rounded-lg bg-white border border-cream-300 text-xs font-mono font-bold text-banhmi-dark shadow-xs"
+                              className="px-2 py-0.5 rounded-lg bg-white border border-cream-300 text-xs font-mono font-bold text-banhmi-dark shadow-xs"
                             >
                               {it.quantity}x {it.menuItem.name}
                             </span>
@@ -1507,7 +1520,8 @@ export default function AdminPortalPage() {
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-cream-200">
+                      {/* Action Progression & Doorstep OTP */}
+                      <div className="pt-2 border-t border-cream-200 space-y-2">
                         {!isDelivering && (
                           <button
                             type="button"
@@ -1516,49 +1530,54 @@ export default function AdminPortalPage() {
                                 await updateOrderStatus(order.id, 'delivering');
                                 await fetchRiderOrders();
                               } catch (err: any) {
-                                setRiderOtpError((prev) => ({ ...prev, [order.id]: err.message || 'Failed to update delivery status.' }));
+                                setRiderOtpError((prev) => ({
+                                  ...prev,
+                                  [order.id]: err.message || 'Failed to update delivery status.',
+                                }));
                               }
                             }}
-                            className="w-full py-3.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-display text-base uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-98 cursor-pointer"
+                            className="w-full py-3.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-display text-sm sm:text-base uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95 cursor-pointer"
                           >
                             <Bike className="w-5 h-5" />
-                            <span>Pick Up Package & Start Delivery</span>
+                            <span>Pick Up Package &amp; Start Delivery</span>
                           </button>
                         )}
 
                         {isDelivering && (
-                          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950 via-[#1D1511] to-[#4A2818] text-white border-2 border-emerald-500 shadow-md space-y-3">
-                            <div className="flex items-center justify-between flex-wrap gap-2">
-                              <div className="flex items-center space-x-2">
-                                <KeyRound className="w-5 h-5 text-emerald-400" />
+                          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950 via-[#1D1511] to-[#4A2818] text-white border-2 border-emerald-500 shadow-md space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-1">
+                              <div className="flex items-center space-x-1.5">
+                                <KeyRound className="w-4 h-4 text-emerald-400" />
                                 <span className="font-mono text-xs uppercase tracking-wider font-bold text-emerald-300">
-                                  Doorstep OTP Verification
+                                  Doorstep 4-Digit OTP Verification
                                 </span>
                               </div>
                               <span className="text-[10px] font-mono text-white/60">
-                                Ask customer for 4-digit code
+                                Ask customer for OTP
                               </span>
                             </div>
 
-                            <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                            <div className="flex flex-col sm:flex-row items-center gap-2">
                               <input
                                 type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 maxLength={6}
                                 placeholder="Enter 4-Digit OTP..."
                                 value={riderOtpInputs[order.id] || ''}
                                 onChange={(e) => {
-                                  const val = e.target.value;
+                                  const val = e.target.value.replace(/[^0-9]/g, '');
                                   setRiderOtpInputs((prev) => ({ ...prev, [order.id]: val }));
                                   setRiderOtpError((prev) => ({ ...prev, [order.id]: '' }));
                                 }}
-                                className="w-full sm:w-56 px-4 py-2.5 rounded-xl bg-white text-banhmi-dark font-mono text-center text-lg font-black tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-black/30 placeholder:tracking-normal placeholder:text-xs"
+                                className="w-full sm:w-48 px-3 py-3 rounded-xl bg-white text-banhmi-dark font-mono text-center text-lg sm:text-xl font-black tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-black/30 placeholder:tracking-normal placeholder:text-xs"
                               />
 
                               <button
                                 type="button"
                                 disabled={riderVerifyingId === order.id}
                                 onClick={() => handleRiderVerifyOtp(order.id)}
-                                className="w-full sm:flex-1 py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+                                className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50 cursor-pointer"
                               >
                                 {riderVerifyingId === order.id ? (
                                   <>
@@ -1589,6 +1608,22 @@ export default function AdminPortalPage() {
                             )}
                           </div>
                         )}
+
+                        {/* Direct SOS Button for this specific order */}
+                        <div className="pt-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSosOrderId(order.id);
+                              setSosTokenId(order.tokenId || order.id);
+                              setShowRiderSosModal(true);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-900 text-[11px] font-mono font-bold flex items-center space-x-1 transition-colors cursor-pointer"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Report Trouble on #{order.tokenId || order.id} (SOS)</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1597,27 +1632,27 @@ export default function AdminPortalPage() {
             )}
           </div>
 
-          {/* Completed Deliveries */}
-          <div className="space-y-4 pt-6 border-t border-cream-300">
-            <h3 className="font-display text-xl uppercase font-black text-banhmi-dark tracking-tight flex items-center space-x-2">
+          {/* Delivered History */}
+          <div className="space-y-3 pt-4 border-t border-cream-300">
+            <h3 className="font-display text-lg sm:text-xl uppercase font-black text-banhmi-dark tracking-tight flex items-center space-x-2">
               <PackageCheck className="w-5 h-5 text-emerald-600" />
-              <span>Delivered History ({riderCompletedDeliveries.length})</span>
+              <span>Delivered History Today ({riderCompletedDeliveries.length})</span>
             </h3>
 
             {riderCompletedDeliveries.length === 0 ? (
-              <div className="p-4 rounded-2xl bg-white border border-cream-300 text-center text-xs font-mono text-black/50">
+              <div className="p-3.5 rounded-2xl bg-white border border-cream-300 text-center text-xs font-mono text-black/50">
                 No past delivered orders recorded for today yet.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {riderCompletedDeliveries.map((order) => (
                   <div
                     key={order.id}
-                    className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-xs flex items-center justify-between"
+                    className="p-3.5 rounded-2xl bg-white border border-emerald-200 shadow-xs flex items-center justify-between"
                   >
                     <div>
                       <div className="flex items-center space-x-1.5">
-                        <span className="font-mono font-bold text-banhmi-dark text-sm">
+                        <span className="font-mono font-bold text-banhmi-dark text-xs sm:text-sm">
                           #{order.tokenId || order.id}
                         </span>
                         <span className="px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[9px] font-mono font-bold uppercase flex items-center space-x-1">
@@ -1631,7 +1666,9 @@ export default function AdminPortalPage() {
                     </div>
 
                     <span className="text-[10px] font-mono text-black/50">
-                      {order.deliveredAt ? new Date(order.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Delivered'}
+                      {order.deliveredAt
+                        ? new Date(order.deliveredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : 'Done'}
                     </span>
                   </div>
                 ))}
@@ -1639,6 +1676,152 @@ export default function AdminPortalPage() {
             )}
           </div>
         </main>
+
+        {/* ------------------------------------------------------------------- */}
+        {/* MODAL: RIDER DISASTER EMERGENCY SOS ASSISTANCE (INSIDE RIDER PORTAL) */}
+        {/* ------------------------------------------------------------------- */}
+        <AnimatePresence>
+          {showRiderSosModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.92, y: 20 }}
+                className="w-full max-w-lg bg-white rounded-3xl p-5 sm:p-7 border-2 border-rose-600 shadow-warm-2xl space-y-4 my-auto relative"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-rose-200 pb-3">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-2 rounded-xl bg-rose-100 text-rose-700 flex-shrink-0">
+                      <Siren className="w-6 h-6 animate-pulse text-rose-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-display text-lg sm:text-xl uppercase font-black text-rose-700 leading-tight">
+                        🚨 Rider Emergency SOS Help
+                      </h3>
+                      <span className="text-[10px] font-mono text-black/60 uppercase tracking-wider block">
+                        Broadcasts Red Alert with live GPS pin to Kitchen KDS
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowRiderSosModal(false)}
+                    className="p-1 text-black/40 hover:text-black cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleRiderSubmitSos} className="space-y-3.5">
+                  {sosTokenId && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-xs font-mono font-bold text-amber-900 flex items-center justify-between">
+                      <span>Order In Trouble: #{sosTokenId}</span>
+                      <span className="text-[10px] uppercase bg-amber-200 px-2 py-0.5 rounded-md">
+                        Assigned Delivery
+                      </span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-mono uppercase text-black/70 font-bold block mb-1.5">
+                      Select Emergency Issue Type *:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'Vehicle Breakdown / Accident', icon: '💥' },
+                        { id: 'Heavy Rain / Flood / Waterlogging', icon: '🌧️' },
+                        { id: 'Road Blocked / Traffic Gridlock', icon: '🛑' },
+                        { id: 'Medical Emergency', icon: '🏥' },
+                        { id: 'Threat / Safety / Dispute', icon: '⚠️' },
+                        { id: 'Other Urgent Trouble', icon: '❓' },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSosReason(item.id)}
+                          className={`p-2.5 rounded-xl text-xs font-mono font-bold text-left transition-all border flex items-center space-x-1.5 cursor-pointer ${
+                            sosReason === item.id
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                              : 'bg-[#FFF8F0] text-black/80 border-banhmi-gold/40 hover:bg-rose-50'
+                          }`}
+                        >
+                          <span>{item.icon}</span>
+                          <span className="truncate">{item.id}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-mono uppercase text-black/70 font-bold block mb-1">
+                      Describe What Happened (Optional):
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={sosNotes}
+                      onChange={(e) => setSosNotes(e.target.value)}
+                      placeholder="e.g. Tire punctured near junction, knee-deep water, need another rider to take over..."
+                      className="w-full px-3 py-2 rounded-xl bg-[#FFF8F0] border border-banhmi-gold/40 text-xs font-mono text-banhmi-dark focus:outline-none focus:ring-2 focus:ring-rose-600 resize-none placeholder:text-black/30"
+                    />
+                  </div>
+
+                  {/* Auto-detected GPS Coordinates indicator */}
+                  <div className="p-2.5 rounded-xl bg-cream-100 border border-cream-300 text-xs font-mono text-black/70 flex items-center justify-between">
+                    <span className="flex items-center space-x-1">
+                      <MapPin className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                      <span>Live GPS Coordinates will be attached</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                      Auto-Transmitted
+                    </span>
+                  </div>
+
+                  {sosErrorMsg && (
+                    <div className="p-2.5 rounded-xl bg-rose-100 border border-rose-300 text-rose-900 text-xs font-mono">
+                      {sosErrorMsg}
+                    </div>
+                  )}
+
+                  {sosSuccessMsg && (
+                    <div className="p-3 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-mono font-bold flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      <span>{sosSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                    <a
+                      href="tel:112"
+                      className="py-3 px-4 rounded-xl bg-stone-900 hover:bg-black text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-1.5 shadow-sm transition-all"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Call 112 / Police</span>
+                    </a>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingSos}
+                      className="flex-1 py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-display text-sm uppercase tracking-wider font-bold transition-all shadow-md flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSubmittingSos ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Broadcasting SOS to KDS...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Siren className="w-4 h-4 text-yellow-300" />
+                          <span>Send Emergency SOS Alert</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         {/* DRIVER REALTIME ALERT MODAL */}
         <AnimatePresence>
