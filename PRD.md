@@ -180,10 +180,9 @@ graph TD
   - Filter tabs: *All, New Orders, Preparing, Packed, Dispatched, Completed*.
   - Delivery vs Pickup filter toggle.
   - Status progression buttons: *Accept & Start Brewing*, *Mark Thermal Packed*, *Dispatch Delivery Partner*, *Verify Pickup OTP & Handover*, *Cancel Order*.
-- **Active SOS Disaster Emergency Banner & Action Center:**
-  - Flashing red & gold disaster banner displayed when any rider triggers SOS.
-  - Dual-tone emergency siren synthesizer alarm.
-  - Admin Action Center modal with 1-tap "Call Rider", "Open Rider Live GPS Pin in Google Maps", and "Resolve & Clear SOS Alert".
+- **Active SOS Disaster Emergency System & 5-Second Full-Screen Red Alert:**
+  - **Full-Screen 5-Second Red Alert Takeover:** When any delivery rider triggers an emergency SOS, the Kitchen KDS immediately activates a full-screen red alert takeover screen (`z-[99999]`) with pulsing hazard strobes, dual-tone audio siren alarm, large rider identity, reported crisis reason, 1-tap direct phone call button, 1-tap live GPS Google Maps navigation, and an auto-minimizing 5-second countdown timer.
+  - **Persistent Top Emergency Banner & Action Center:** After the 5-second takeover (or upon early dismissal/click), the alert transitions to a persistent pulsing top banner and opens the SOS Action Center modal for calling the rider, inspecting live coordinates, and resolving the emergency.
 - **Delivery Agent / Rider Portal Mode:**
   - Rider login via registered 10-digit phone number.
   - Clean mobile view showing assigned deliveries.

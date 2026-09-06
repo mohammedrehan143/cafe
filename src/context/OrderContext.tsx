@@ -78,6 +78,7 @@ const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
 const ORDERS_STORAGE_KEY = 'atelier_lambre_orders_v1';
 const CART_STORAGE_KEY = 'atelier_lambre_cart_v1';
+const SOS_STORAGE_KEY = 'zafiroo_sos_alerts_v1';
 
 // Auto-purge orders older than current calendar month retention (35 days)
 function filterOrdersRetention(list: Order[]): Order[] {
@@ -161,6 +162,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         if (savedCart) {
           setCart(JSON.parse(savedCart));
         }
+
+        const savedSos = localStorage.getItem(SOS_STORAGE_KEY);
+        if (savedSos) {
+          setSosAlerts(JSON.parse(savedSos));
+        }
       } catch {
         // fallback
       }
@@ -224,6 +230,73 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
               } catch {}
               return updated;
             });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Real-time Supabase Subscription for SOS ALERTS (KDS instant Red Alert screen trigger)
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
+    const channel = supabase
+      .channel('kds-sos-alerts-stream')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'sos_alerts',
+        },
+        (payload: any) => {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const newAlert: SosAlert = {
+              id: payload.new.id,
+              agentId: payload.new.agent_id || undefined,
+              agentName: payload.new.agent_name || 'Rider',
+              agentPhone: payload.new.agent_phone || '',
+              orderId: payload.new.order_id || undefined,
+              tokenId: payload.new.token_id || undefined,
+              reason: payload.new.reason || 'Emergency Assistance',
+              notes: payload.new.notes || undefined,
+              lat: payload.new.lat ? Number(payload.new.lat) : undefined,
+              lng: payload.new.lng ? Number(payload.new.lng) : undefined,
+              locationAddress: payload.new.location_address || undefined,
+              status: payload.new.status || 'active',
+              resolvedAt: payload.new.resolved_at || undefined,
+              resolvedBy: payload.new.resolved_by || undefined,
+              createdAt: payload.new.created_at || new Date().toISOString(),
+            };
+            setSosAlerts((prev) => {
+              const exists = prev.some((a) => a.id === newAlert.id);
+              if (exists) return prev;
+              const updated = [newAlert, ...prev];
+              try {
+                localStorage.setItem(SOS_STORAGE_KEY, JSON.stringify(updated));
+                localStorage.setItem('zafiroo_latest_sos_broadcast', JSON.stringify({ alert: newAlert, ts: Date.now() }));
+              } catch {}
+              return updated;
+            });
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            setSosAlerts((prev) =>
+              prev.map((a) =>
+                a.id === payload.new.id
+                  ? {
+                      ...a,
+                      status: payload.new.status,
+                      resolvedAt: payload.new.resolved_at,
+                      resolvedBy: payload.new.resolved_by,
+                    }
+                  : a
+              )
+            );
           }
         }
       )
@@ -324,6 +397,24 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // ignore malformed storage payload
         }
+      } else if (e.key === SOS_STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setSosAlerts(parsed);
+          }
+        } catch {}
+      } else if (e.key === 'zafiroo_latest_sos_broadcast' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && parsed.alert) {
+            setSosAlerts((prev) => {
+              const exists = prev.some((a) => a.id === parsed.alert.id);
+              if (exists) return prev;
+              return [parsed.alert, ...prev];
+            });
+          }
+        } catch {}
       }
     };
     window.addEventListener('storage', handleStorageChange);
@@ -661,7 +752,17 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(params),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && data.success && data.alert) {
+        setSosAlerts((prev) => {
+          const exists = prev.some((a) => a.id === data.alert.id);
+          if (exists) return prev;
+          const updated = [data.alert, ...prev];
+          try {
+            localStorage.setItem(SOS_STORAGE_KEY, JSON.stringify(updated));
+            localStorage.setItem('zafiroo_latest_sos_broadcast', JSON.stringify({ alert: data.alert, ts: Date.now() }));
+          } catch {}
+          return updated;
+        });
         refreshSosAlerts();
         return { success: true, alert: data.alert, message: data.message };
       }
@@ -681,9 +782,15 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (data.success) {
-        setSosAlerts((prev) =>
-          prev.map((a) => (a.id === alertId ? { ...a, status: 'resolved', resolvedAt: new Date().toISOString() } : a))
-        );
+        setSosAlerts((prev) => {
+          const updated = prev.map((a) =>
+            a.id === alertId ? { ...a, status: 'resolved' as const, resolvedAt: new Date().toISOString(), resolvedBy } : a
+          );
+          try {
+            localStorage.setItem(SOS_STORAGE_KEY, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
         return true;
       }
     } catch {}

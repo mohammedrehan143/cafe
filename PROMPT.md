@@ -254,10 +254,9 @@ Build high-precision location helper functions:
   - Live clock and 24-hour midnight countdown timer.
   - Synthesized Web Audio API sound alert on new incoming orders.
   - Status progression buttons: *Accept & Start Cooking*, *Mark Thermal Packed*, *Dispatch Delivery Partner*, *Verify Pickup OTP & Handover*, *Cancel*.
-- **Active SOS Emergency Banner & Action Center:**
-  - Flashing red/gold warning banner when any delivery rider triggers an emergency SOS.
-  - Pulsing siren alarm audio.
-  - Action Center modal to call the rider, open their exact GPS location in Google Maps, and resolve/dismiss the alert.
+- **Active SOS Emergency System & 5-Second Full-Screen Red Alert:**
+  - **Full-Screen 5-Second Red Alert Overlay:** When any delivery rider triggers an emergency SOS, the KDS displays an intense 5-second full-screen red alert takeover with dual-tone audio siren alarm, pulsing hazard strobes, rider details, 1-tap call button, 1-tap live GPS Google Maps navigation, and an auto-minimizing countdown timer.
+  - **Persistent Top Emergency Banner & Action Center:** After the 5-second takeover, the alert minimizes into a persistent top banner with an SOS Action Center modal to call the rider, inspect coordinates, and resolve the alert.
 - **Delivery Agent Rider Mobile Portal:**
   - Rider login via registered 10-digit phone number.
   - Mobile cards showing assigned orders with complete 1-line address and 1-tap Google Maps navigation button.

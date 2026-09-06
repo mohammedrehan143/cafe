@@ -202,6 +202,11 @@ export default function AdminPortalPage() {
   const [isResolvingSos, setIsResolvingSos] = useState(false);
   const [adminResolutionNotes, setAdminResolutionNotes] = useState('');
 
+  // 5-Second Full Screen Red Alert SOS State (Kitchen KDS)
+  const [fullScreenSosAlert, setFullScreenSosAlert] = useState<SosAlert | null>(null);
+  const [sosCountdown, setSosCountdown] = useState<number>(5);
+  const alertedSosIdsRef = useRef<Set<string>>(new Set());
+
   // Business Analytics Period State ('today' | 'month' | 'all')
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'today' | 'month' | 'all'>('today');
   const [analyticsSearch, setAnalyticsSearch] = useState('');
@@ -238,6 +243,34 @@ export default function AdminPortalPage() {
       }
     } catch {}
   }, []);
+
+  // Web Audio API Synthesized High-Urgency Emergency Siren for Rider SOS Disaster
+  const playEmergencySiren = useCallback(() => {
+    if (!soundEnabled) return;
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const now = ctx.currentTime;
+
+      // Pulse 6 high-low siren wails for ~4.5 seconds
+      for (let i = 0; i < 6; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        const start = now + i * 0.75;
+        osc.frequency.setValueAtTime(960, start);
+        osc.frequency.linearRampToValueAtTime(680, start + 0.35);
+        osc.frequency.linearRampToValueAtTime(960, start + 0.7);
+        gain.gain.setValueAtTime(0.35, start);
+        gain.gain.exponentialRampToValueAtTime(0.01, start + 0.72);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.74);
+      }
+    } catch {}
+  }, [soundEnabled]);
 
   // Web Audio API Synthesized Bell Chime (Works on KDS and Rider Portal)
   const playKitchenChime = () => {
@@ -278,6 +311,48 @@ export default function AdminPortalPage() {
       }
     }
   };
+
+  // Real-Time Trigger for 5-Second Full Screen Red Alert in Kitchen KDS
+  useEffect(() => {
+    if (authRole !== 'admin') return;
+
+    const unalertedSos = (sosAlerts || []).filter(
+      (a) => a.status === 'active' && !alertedSosIdsRef.current.has(a.id)
+    );
+
+    if (unalertedSos.length > 0) {
+      const latest = unalertedSos[0];
+      alertedSosIdsRef.current.add(latest.id);
+      setFullScreenSosAlert(latest);
+      setSosCountdown(5);
+      playEmergencySiren();
+
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification(`🚨 RIDER SOS EMERGENCY: ${latest.agentName}`, {
+          body: `Distress: ${latest.reason} • Phone: ${latest.agentPhone}`,
+          icon: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?q=80&w=200&auto=format&fit=crop',
+        });
+      }
+    }
+  }, [sosAlerts, authRole, playEmergencySiren]);
+
+  // 5-Second Countdown Timer for Full Screen Red Alert Takeover
+  useEffect(() => {
+    if (!fullScreenSosAlert) return;
+
+    const timer = setInterval(() => {
+      setSosCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setFullScreenSosAlert(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [fullScreenSosAlert]);
 
 
 
@@ -3279,6 +3354,176 @@ export default function AdminPortalPage() {
                 </div>
               </div>
             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* FULL SCREEN 5-SECOND RED ALERT EMERGENCY OVERLAY (KDS TAKEOVER) */}
+      {/* --------------------------------------------------------------------- */}
+      <AnimatePresence>
+        {fullScreenSosAlert && (
+          <div className="fixed inset-0 z-[99999] bg-gradient-to-br from-red-950 via-rose-950 to-black text-white flex flex-col justify-between p-4 sm:p-8 overflow-hidden select-none">
+            {/* Pulsing hazard strobe glow background */}
+            <div className="absolute inset-0 bg-red-600/25 animate-pulse pointer-events-none" />
+            <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-red-500/30 blur-3xl pointer-events-none animate-ping" />
+            <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-amber-500/20 blur-3xl pointer-events-none" />
+
+            {/* Top Strobe Bar */}
+            <div className="relative z-10 flex items-center justify-between border-b-2 border-yellow-400/80 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-3 rounded-2xl bg-yellow-400 text-black shadow-lg animate-bounce">
+                  <Siren className="w-8 h-8 text-black" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-3 py-1 rounded-full bg-yellow-400 text-black font-mono text-xs sm:text-sm font-black uppercase tracking-widest animate-pulse">
+                      🚨 FULL RED ALERT: RIDER IN DISTRESS
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-black/60 text-red-300 font-mono text-xs border border-red-400/40">
+                      PRIORITY EMERGENCY
+                    </span>
+                  </div>
+                  <h1 className="font-display text-2xl sm:text-4xl uppercase font-black tracking-tight text-white mt-1 drop-shadow-md">
+                    CRITICAL SOS DISASTER BROADCAST
+                  </h1>
+                </div>
+              </div>
+
+              {/* 5-Second Countdown Timer Badge */}
+              <div className="flex items-center space-x-3">
+                <div className="text-right">
+                  <span className="text-[10px] font-mono uppercase text-yellow-300 font-bold block tracking-wider">
+                    Auto-Minimizing In
+                  </span>
+                  <div className="flex items-center justify-end space-x-1.5">
+                    <span className="font-mono text-2xl sm:text-3xl font-black text-yellow-400">
+                      {sosCountdown}s
+                    </span>
+                    <span className="text-xs font-mono text-white/60">/ 5s</span>
+                  </div>
+                </div>
+                <div className="w-12 h-12 rounded-2xl bg-black/80 border-2 border-yellow-400 flex items-center justify-center font-mono text-xl font-black text-yellow-300 shadow-xl ring-4 ring-yellow-400/30 animate-pulse">
+                  {sosCountdown}
+                </div>
+              </div>
+            </div>
+
+            {/* Center Distress Details Card */}
+            <div className="relative z-10 max-w-4xl mx-auto w-full my-auto py-4">
+              <div className="bg-black/80 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border-2 border-red-500 shadow-2xl space-y-6">
+                {/* Header with Rider Name & Call */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/20 pb-5">
+                  <div>
+                    <span className="text-xs font-mono uppercase text-yellow-300 font-bold tracking-widest block mb-1">
+                      Distressed Courier Partner
+                    </span>
+                    <h2 className="font-display text-3xl sm:text-5xl uppercase font-black text-white tracking-tight">
+                      {fullScreenSosAlert.agentName}
+                    </h2>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <span className="px-3 py-1 rounded-full bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 font-mono text-xs font-bold">
+                        📞 +91 {fullScreenSosAlert.agentPhone}
+                      </span>
+                      {fullScreenSosAlert.tokenId && (
+                        <span className="px-3 py-1 rounded-full bg-amber-500/30 text-amber-300 border border-amber-400/40 font-mono text-xs font-bold">
+                          Order #{fullScreenSosAlert.tokenId}
+                        </span>
+                      )}
+                      <span className="px-3 py-1 rounded-full bg-rose-500/30 text-rose-300 border border-rose-400/40 font-mono text-xs font-bold">
+                        Alert #{fullScreenSosAlert.id}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick Call Button */}
+                  <a
+                    href={`tel:${fullScreenSosAlert.agentPhone.replace(/[^0-9+]/g, '')}`}
+                    className="px-6 py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-display text-base uppercase tracking-wider font-bold shadow-xl flex items-center justify-center space-x-2 transition-all active:scale-95 border-2 border-emerald-300"
+                  >
+                    <Phone className="w-5 h-5" />
+                    <span>Call Rider Now</span>
+                  </a>
+                </div>
+
+                {/* Emergency Category & GPS Box */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-red-950/90 border-2 border-red-500/80 space-y-2">
+                    <span className="text-[10px] font-mono uppercase text-red-300 font-bold tracking-wider block">
+                      Reported Disaster Issue
+                    </span>
+                    <div className="font-display text-xl sm:text-2xl uppercase font-black text-yellow-300">
+                      {fullScreenSosAlert.reason}
+                    </div>
+                    {fullScreenSosAlert.notes && (
+                      <p className="text-xs font-mono text-white/95 italic pt-2 border-t border-red-800/80">
+                        &ldquo;{fullScreenSosAlert.notes}&rdquo;
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="p-4 sm:p-5 rounded-2xl bg-stone-950/90 border border-white/20 space-y-3 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-white/60 font-bold tracking-wider block">
+                        Live GPS Location
+                      </span>
+                      <p className="text-xs font-mono text-white/95 mt-1 line-clamp-2">
+                        {fullScreenSosAlert.locationAddress ||
+                          (fullScreenSosAlert.lat && fullScreenSosAlert.lng
+                            ? `GPS Coordinates: ${fullScreenSosAlert.lat.toFixed(5)}, ${fullScreenSosAlert.lng.toFixed(5)}`
+                            : 'Live GPS Pin Transmitted with Alert')}
+                      </p>
+                    </div>
+
+                    {fullScreenSosAlert.lat && fullScreenSosAlert.lng ? (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${fullScreenSosAlert.lat.toFixed(6)},${fullScreenSosAlert.lng.toFixed(6)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold uppercase flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95"
+                      >
+                        <Navigation className="w-4 h-4" />
+                        <span>Open Live GPS in Google Maps</span>
+                      </a>
+                    ) : (
+                      <span className="text-[11px] font-mono text-white/50">
+                        Live coordinates attached to server dispatch record
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Action Footer */}
+            <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-3 border-t-2 border-white/20 pt-4">
+              <div className="flex items-center space-x-2 text-xs font-mono text-white/80">
+                <ShieldAlert className="w-4 h-4 text-yellow-400" />
+                <span>Alert remains permanently visible at top of KDS until resolved in Action Center</span>
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminViewSosModal(fullScreenSosAlert);
+                    setFullScreenSosAlert(null);
+                  }}
+                  className="flex-1 sm:flex-initial px-6 py-3.5 rounded-2xl bg-yellow-400 hover:bg-yellow-300 text-black font-display text-sm uppercase tracking-wider font-bold shadow-xl flex items-center justify-center space-x-2 transition-all active:scale-95 cursor-pointer"
+                >
+                  <ShieldAlert className="w-4 h-4 text-black" />
+                  <span>Open SOS Action Center</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFullScreenSosAlert(null)}
+                  className="flex-1 sm:flex-initial px-5 py-3.5 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-mono text-xs uppercase tracking-wider font-bold transition-all border border-white/30 active:scale-95 cursor-pointer"
+                >
+                  <span>Dismiss Takeover ({sosCountdown}s)</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </AnimatePresence>
