@@ -221,6 +221,7 @@ export default function AdminPortalPage() {
   // Track all order IDs that have already been alerted
   const alertedOrderIdsRef = useRef<Set<string>>(new Set());
   const isInitializedRef = useRef<boolean>(false);
+  const pageMountedAtRef = useRef<number>(Date.now());
 
 
   // Check existing session on mount
@@ -358,20 +359,36 @@ export default function AdminPortalPage() {
 
   // Real-Time Audio & Visual Trigger on Incoming Orders (FOR BOTH KDS & DRIVER APP)
   useEffect(() => {
+    // On first load, seed all existing orders into alertedOrderIdsRef so they don't trigger alerts
     if (!isInitializedRef.current) {
-      orders.forEach((o) => {
-        alertedOrderIdsRef.current.add(o.id);
-        alertedOrderIdsRef.current.add(`rider-${o.id}-${o.status}`);
-      });
-      isInitializedRef.current = true;
+      if (orders.length > 0) {
+        orders.forEach((o) => {
+          alertedOrderIdsRef.current.add(o.id);
+          alertedOrderIdsRef.current.add(`rider-${o.id}-${o.status}`);
+        });
+        isInitializedRef.current = true;
+      }
       return;
     }
 
+    const isOrderRecent = (createdAt?: string) => {
+      if (!createdAt) return false;
+      const orderTime = new Date(createdAt).getTime();
+      if (isNaN(orderTime)) return false;
+      // Only pop up if created within 60 seconds before page mount or while page is open
+      return orderTime >= (pageMountedAtRef.current - 60 * 1000);
+    };
+
     if (authRole === 'admin') {
       const unalertedOrders = orders.filter((o) => !alertedOrderIdsRef.current.has(o.id) && o.status === 'new');
-      if (unalertedOrders.length > 0) {
-        const latestOrder = unalertedOrders[0];
-        alertedOrderIdsRef.current.add(latestOrder.id);
+      
+      // Always mark as seen immediately to avoid repeated alert loops
+      unalertedOrders.forEach((o) => alertedOrderIdsRef.current.add(o.id));
+
+      // Only trigger chime & modal if the order genuinely arrived live
+      const genuineNewOrders = unalertedOrders.filter((o) => isOrderRecent(o.createdAt));
+      if (genuineNewOrders.length > 0) {
+        const latestOrder = genuineNewOrders[0];
         playKitchenChime();
         triggerDesktopNotification(latestOrder, `New Kitchen Ticket #${latestOrder.tokenId || latestOrder.id}`);
         setNewOrderAlert(latestOrder);
@@ -386,9 +403,13 @@ export default function AdminPortalPage() {
         return isAssigned && isDeliverable && !alertedOrderIdsRef.current.has(key);
       });
 
-      if (unalertedRiderOrders.length > 0) {
-        const latestRiderOrder = unalertedRiderOrders[0];
-        alertedOrderIdsRef.current.add(`rider-${latestRiderOrder.id}-${latestRiderOrder.status}`);
+      unalertedRiderOrders.forEach((o) => {
+        alertedOrderIdsRef.current.add(`rider-${o.id}-${o.status}`);
+      });
+
+      const genuineRiderOrders = unalertedRiderOrders.filter((o) => isOrderRecent(o.createdAt));
+      if (genuineRiderOrders.length > 0) {
+        const latestRiderOrder = genuineRiderOrders[0];
         playKitchenChime();
         triggerDesktopNotification(latestRiderOrder, `New Delivery Assigned #${latestRiderOrder.tokenId || latestRiderOrder.id}`);
         setNewOrderAlert(latestRiderOrder);
