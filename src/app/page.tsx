@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
+import Preloader from '@/components/Preloader';
 import ZafirooHero from '@/components/ZafirooHero';
 import BestPicksSection from '@/components/BestPicksSection';
 import TestimonialsSection from '@/components/TestimonialsSection';
@@ -27,7 +28,10 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#FFF8F0] text-[#1C1917] relative selection:bg-[#4A2818] selection:text-white">
-      {/* 1. Zafiroo Hero Section with Cinematic Background */}
+      {/* 1. Opening Preloader Loading Animation */}
+      <Preloader />
+
+      {/* 2. Zafiroo Hero Section with Cinematic Background */}
       <ZafirooHero />
 
       {/* 2. Zafiroo Best Picks Curated Spotlight (Add to Cart / Customizer) */}
